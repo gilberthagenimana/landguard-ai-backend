@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+.env
+.env.*
+!.env.example
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+coverage/
+.npm/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+
+# Build
+dist/
+build/
+*.log
+
+# Database
+*.sqlite3
+*.db
+
+# TypeScript build metadata
+*.tsbuildinfo
+
+# Trained model binaries
+*.joblib
+
+# Misc
+*.bak
