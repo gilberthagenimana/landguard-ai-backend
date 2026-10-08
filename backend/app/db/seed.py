@@ -14,7 +14,7 @@ from app.models.transaction import Transaction
 from app.models.user import User
 from app.services.audit.service import record_audit
 
-DEMO_NOTE = "Synthetic demo record for academic testing. Not official Rwandan land data."
+DEMO_NOTE = "DEMO/SYNTHETIC DATA - NOT OFFICIAL LAND RECORDS"
 
 
 def seed_demo_data(db: Session) -> None:
@@ -66,12 +66,12 @@ def seed_demo_data(db: Session) -> None:
     by_code = {owner.owner_code: owner for owner in owners}
 
     parcels = [
-        Parcel(parcel_code="RW-10432", location="Kicukiro / Niboye / Kagarama", province="Kigali", district="Kicukiro", sector="Niboye", cell="Kagarama", village="Demo Village A", area_ha=0.082, status="ACTIVE", registration_reference="DEMO-PARCEL-10432"),
-        Parcel(parcel_code="RW-88213", location="Gasabo / Remera / Nyabisindu", province="Kigali", district="Gasabo", sector="Remera", cell="Nyabisindu", village="Demo Village B", area_ha=0.115, status="ACTIVE", registration_reference="DEMO-PARCEL-88213"),
-        Parcel(parcel_code="RW-20991", location="Huye / Ngoma / Butare", province="Southern", district="Huye", sector="Ngoma", cell="Butare", village="Demo Village C", area_ha=0.064, status="UNDER_REVIEW", registration_reference="DEMO-PARCEL-20991"),
-        Parcel(parcel_code="RW-33107", location="Musanze / Muhoza / Amajyaruguru", province="Northern", district="Musanze", sector="Muhoza", cell="Amajyaruguru", village="Demo Village D", area_ha=0.099, status="ACTIVE", registration_reference="DEMO-PARCEL-33107"),
-        Parcel(parcel_code="RW-55621", location="Nyarugenge / Nyamirambo / Rugarama", province="Kigali", district="Nyarugenge", sector="Nyamirambo", cell="Rugarama", village="Demo Village E", area_ha=0.041, status="ACTIVE", registration_reference="DEMO-PARCEL-55621"),
-        Parcel(parcel_code="RW-77890", location="Rubavu / Gisenyi / Kivu", province="Western", district="Rubavu", sector="Gisenyi", cell="Kivu", village="Demo Village F", area_ha=0.142, status="DISPUTED", registration_reference="DEMO-PARCEL-77890"),
+        Parcel(upi="UPI-001", parcel_code="RW-10432", location="Kicukiro / Niboye / Kagarama", province="Kigali", district="Kicukiro", sector="Niboye", cell="Kagarama", village="Demo Village A", area_ha=0.082, status="ACTIVE", registration_reference="DEMO-PARCEL-10432"),
+        Parcel(upi="UPI-002", parcel_code="RW-88213", location="Gasabo / Remera / Nyabisindu", province="Kigali", district="Gasabo", sector="Remera", cell="Nyabisindu", village="Demo Village B", area_ha=0.115, status="ACTIVE", registration_reference="DEMO-PARCEL-88213"),
+        Parcel(upi="UPI-003", parcel_code="RW-20991", location="Huye / Ngoma / Butare", province="Southern", district="Huye", sector="Ngoma", cell="Butare", village="Demo Village C", area_ha=0.064, status="UNDER_REVIEW", registration_reference="DEMO-PARCEL-20991"),
+        Parcel(upi="UPI-004", parcel_code="RW-33107", location="Musanze / Muhoza / Amajyaruguru", province="Northern", district="Musanze", sector="Muhoza", cell="Amajyaruguru", village="Demo Village D", area_ha=0.099, status="ACTIVE", registration_reference="DEMO-PARCEL-33107"),
+        Parcel(upi="UPI-005", parcel_code="RW-55621", location="Nyarugenge / Nyamirambo / Rugarama", province="Kigali", district="Nyarugenge", sector="Nyamirambo", cell="Rugarama", village="Demo Village E", area_ha=0.041, status="ACTIVE", registration_reference="DEMO-PARCEL-55621"),
+        Parcel(upi="UPI-006", parcel_code="RW-77890", location="Rubavu / Gisenyi / Kivu", province="Western", district="Rubavu", sector="Gisenyi", cell="Kivu", village="Demo Village F", area_ha=0.142, status="DISPUTED", registration_reference="DEMO-PARCEL-77890"),
     ]
     db.add_all(parcels)
     db.flush()
@@ -93,10 +93,10 @@ def seed_demo_data(db: Session) -> None:
     db.flush()
 
     transactions = [
-        Transaction(transaction_code="TX-98231", parcel_id=parcel_by_code["RW-10432"].id, seller_owner_id=by_code["O-2291"].id, buyer_owner_id=by_code["O-2297"].id, transaction_type="SALE", transaction_date=now - timedelta(days=4), declared_value=Decimal("18500000"), status="VERIFIED", created_by=officer.id),
+        Transaction(transaction_code="TX-98231", parcel_id=parcel_by_code["RW-10432"].id, seller_owner_id=by_code["O-2291"].id, buyer_owner_id=by_code["O-2297"].id, transaction_type="SALE", transaction_date=now - timedelta(days=4), declared_value=Decimal("18500000"), status="COMPLETED", created_by=officer.id),
         Transaction(transaction_code="TX-98232", parcel_id=parcel_by_code["RW-88213"].id, seller_owner_id=by_code["O-2292"].id, buyer_owner_id=by_code["O-2298"].id, transaction_type="SALE", transaction_date=now - timedelta(days=3), declared_value=Decimal("24000000"), status="UNDER_REVIEW", created_by=officer.id),
-        Transaction(transaction_code="TX-98233", parcel_id=parcel_by_code["RW-20991"].id, seller_owner_id=by_code["O-2293"].id, buyer_owner_id=by_code["O-2299"].id, transaction_type="TRANSFER", transaction_date=now - timedelta(days=1), declared_value=Decimal("9700000"), status="UNDER_REVIEW", created_by=officer.id),
-        Transaction(transaction_code="TX-98234", parcel_id=parcel_by_code["RW-33107"].id, seller_owner_id=by_code["O-2294"].id, buyer_owner_id=by_code["O-2297"].id, transaction_type="SALE", transaction_date=now - timedelta(days=6), declared_value=Decimal("15100000"), status="VERIFIED", created_by=officer.id),
+        Transaction(transaction_code="TX-98233", parcel_id=parcel_by_code["RW-20991"].id, seller_owner_id=by_code["O-2293"].id, buyer_owner_id=by_code["O-2299"].id, transaction_type="TRANSFER", transaction_date=now - timedelta(days=1), declared_value=Decimal("9700000"), status="FLAGGED", created_by=officer.id),
+        Transaction(transaction_code="TX-98234", parcel_id=parcel_by_code["RW-33107"].id, seller_owner_id=by_code["O-2294"].id, buyer_owner_id=by_code["O-2297"].id, transaction_type="SALE", transaction_date=now - timedelta(days=6), declared_value=Decimal("15100000"), status="COMPLETED", created_by=officer.id),
         Transaction(transaction_code="TX-98235", parcel_id=parcel_by_code["RW-55621"].id, seller_owner_id=by_code["O-2295"].id, buyer_owner_id=by_code["O-2298"].id, transaction_type="INHERITANCE", transaction_date=now - timedelta(days=7), declared_value=Decimal("8200000"), status="UNDER_REVIEW", created_by=officer.id),
         Transaction(transaction_code="TX-98236", parcel_id=parcel_by_code["RW-77890"].id, seller_owner_id=by_code["O-2296"].id, buyer_owner_id=by_code["O-2300"].id, transaction_type="SALE", transaction_date=now - timedelta(hours=6), declared_value=Decimal("31000000"), status="PENDING", created_by=officer.id),
         Transaction(transaction_code="TX-98237", parcel_id=parcel_by_code["RW-10432"].id, seller_owner_id=by_code["O-2291"].id, buyer_owner_id=by_code["O-2299"].id, transaction_type="SALE", transaction_date=now - timedelta(hours=2), declared_value=Decimal("19000000"), status="PENDING", created_by=officer.id),

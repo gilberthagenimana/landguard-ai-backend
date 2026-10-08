@@ -11,6 +11,7 @@ from app.api.v1.routes.cases import router as cases_router
 from app.api.v1.routes.dashboard import router as dashboard_router
 from app.api.v1.routes.owners import router as owners_router
 from app.api.v1.routes.parcels import router as parcels_router
+from app.api.v1.routes.public import router as public_router
 from app.api.v1.routes.reports import router as reports_router
 from app.api.v1.routes.risk import router as risk_router
 from app.api.v1.routes.transactions import router as transactions_router
@@ -53,6 +54,7 @@ api_routers = [
     cases_router,
     audit_router,
     reports_router,
+    public_router,
 ]
 for router in api_routers:
     app.include_router(router, prefix="/api")

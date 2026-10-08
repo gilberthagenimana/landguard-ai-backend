@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import Depends, HTTPException, status
@@ -12,6 +12,9 @@ from app.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
+MAX_FAILED_ATTEMPTS = 5
+LOCKOUT_DURATION_MINUTES = 30
+
 
 def authenticate_user(db: Session, identifier: str, password: str) -> Optional[User]:
     user = (
@@ -24,6 +27,30 @@ def authenticate_user(db: Session, identifier: str, password: str) -> Optional[U
     if not verify_password(password, user.password_hash):
         return None
     return user
+
+
+def is_account_locked(user: User) -> bool:
+    """Check if user account is temporarily locked due to failed attempts."""
+    if user.failed_login_attempts >= MAX_FAILED_ATTEMPTS:
+        if user.last_failed_login:
+            lockout_end = user.last_failed_login + timedelta(minutes=LOCKOUT_DURATION_MINUTES)
+            if datetime.utcnow() < lockout_end:
+                return True
+    return False
+
+
+def record_failed_login(db: Session, user: User) -> None:
+    """Record a failed login attempt."""
+    user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
+    user.last_failed_login = datetime.utcnow()
+    db.commit()
+
+
+def reset_failed_logins(db: Session, user: User) -> None:
+    """Reset failed login counter on successful login."""
+    user.failed_login_attempts = 0
+    user.last_failed_login = None
+    db.commit()
 
 
 def create_auth_token(user: User) -> str:

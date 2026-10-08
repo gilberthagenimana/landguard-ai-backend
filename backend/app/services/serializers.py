@@ -49,6 +49,7 @@ def serialize_parcel(db: Session, parcel: Parcel) -> ParcelOut:
     owner = latest_owner(db, parcel.id)
     return ParcelOut(
         id=parcel.id,
+        upi=parcel.upi,
         parcel_code=parcel.parcel_code,
         location=parcel.location,
         province=parcel.province,
@@ -59,6 +60,7 @@ def serialize_parcel(db: Session, parcel: Parcel) -> ParcelOut:
         area_ha=parcel.area_ha,
         status=parcel.status,
         registration_reference=parcel.registration_reference,
+        has_pending_transaction=parcel.has_pending_transaction,
         created_at=parcel.created_at,
         updated_at=parcel.updated_at,
         current_owner_name=owner.full_name if owner else None,

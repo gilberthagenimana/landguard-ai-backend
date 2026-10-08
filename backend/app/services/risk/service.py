@@ -26,6 +26,18 @@ RISK_FEATURES = [
     "transaction_value_log",
 ]
 
+FEATURE_DESCRIPTIONS = {
+    "seller_owner_match": "Seller matches the current registered owner",
+    "duplicate_transaction": "Another active transaction exists for this parcel",
+    "recent_ownership_change": "Ownership changed recently (within 30 days)",
+    "record_inconsistency": "Transaction information is incomplete or inconsistent",
+    "ownership_changes": "Total number of ownership changes for this parcel",
+    "previous_transactions": "Number of previous transactions for this parcel",
+    "transaction_frequency_30d": "Number of transactions in the last 30 days",
+    "days_since_previous_transaction": "Days since the last transaction on this parcel",
+    "transaction_value_log": "Log of the declared transaction value",
+}
+
 
 class RiskModelUnavailable(Exception):
     """Raised when the trained model artifact is not available."""
@@ -49,7 +61,7 @@ def build_transaction_features(db: Session, transaction: Transaction) -> dict:
     recent_transactions = [item for item in previous_transactions if item.transaction_date >= recent_cutoff]
     latest_owner = max(ownership_changes, key=lambda item: item.transfer_date, default=None)
     active_conflict = next(
-        (item for item in previous_transactions if item.status in {"PENDING", "UNDER_REVIEW", "ACTIVE"}),
+        (item for item in previous_transactions if item.status in {"PENDING", "UNDER_REVIEW", "FLAGGED"}),
         None,
     )
     previous_dates = [item.transaction_date for item in previous_transactions]
@@ -75,6 +87,25 @@ def build_transaction_features(db: Session, transaction: Transaction) -> dict:
     }
 
 
+def get_feature_importance(features: dict) -> list[dict]:
+    """Return feature importance for explainability."""
+    importance = []
+    for name, value in features.items():
+        if name == "seller_owner_match" and value == 0:
+            importance.append({"feature": name, "description": FEATURE_DESCRIPTIONS[name], "impact": "HIGH"})
+        elif name == "duplicate_transaction" and value == 1:
+            importance.append({"feature": name, "description": FEATURE_DESCRIPTIONS[name], "impact": "HIGH"})
+        elif name == "recent_ownership_change" and value == 1:
+            importance.append({"feature": name, "description": FEATURE_DESCRIPTIONS[name], "impact": "MEDIUM"})
+        elif name == "record_inconsistency" and value == 1:
+            importance.append({"feature": name, "description": FEATURE_DESCRIPTIONS[name], "impact": "HIGH"})
+        elif name == "transaction_frequency_30d" and value > 2:
+            importance.append({"feature": name, "description": FEATURE_DESCRIPTIONS[name], "impact": "MEDIUM"})
+        elif name == "days_since_previous_transaction" and value < 30:
+            importance.append({"feature": name, "description": FEATURE_DESCRIPTIONS[name], "impact": "MEDIUM"})
+    return importance
+
+
 def analyze_transaction(db: Session, transaction: Transaction) -> RiskAnalysisResponse:
     model_path = _model_path()
     if not model_path.exists():
@@ -89,6 +120,8 @@ def analyze_transaction(db: Session, transaction: Transaction) -> RiskAnalysisRe
     risk_score = round(
         sum(float(probability) * score_weights[label] for label, probability in zip(model.classes_, probabilities))
     )
+    confidence = round(max(float(p) for p in probabilities) * 100)
+
     reasons = []
     if features["duplicate_transaction"]:
         reasons.append("Possible duplicate transaction detected.")
@@ -100,14 +133,18 @@ def analyze_transaction(db: Session, transaction: Transaction) -> RiskAnalysisRe
         reasons.append("Unusual transaction frequency detected.")
     if features["record_inconsistency"]:
         reasons.append("Inconsistent transaction information detected.")
+    if features["days_since_previous_transaction"] < 30:
+        reasons.append("Transaction occurred shortly after a previous transaction.")
     if not reasons:
         reasons.append("No elevated rule-based risk indicators were observed in the available records.")
+
+    feature_importance = get_feature_importance(features)
 
     record = RiskPrediction(
         transaction_id=transaction.id,
         risk_score=risk_score,
         risk_level=risk_level,
-        model_version="random_forest-v1-synthetic",
+        model_version="random_forest-v2-synthetic",
         explanation=" ".join(reasons),
         indicators=reasons,
     )
@@ -122,3 +159,17 @@ def analyze_transaction(db: Session, transaction: Transaction) -> RiskAnalysisRe
         reasons=reasons,
         analyzed_at=datetime.now(timezone.utc),
     )
+
+
+def batch_analyze_transactions(db: Session, transaction_ids: list[int]) -> list[RiskAnalysisResponse]:
+    """Analyze multiple transactions at once."""
+    results = []
+    for tx_id in transaction_ids:
+        transaction = db.query(Transaction).filter(Transaction.id == tx_id).first()
+        if transaction:
+            try:
+                result = analyze_transaction(db, transaction)
+                results.append(result)
+            except RiskModelUnavailable:
+                continue
+    return results

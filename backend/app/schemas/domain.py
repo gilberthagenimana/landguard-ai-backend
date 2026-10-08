@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ParcelCreate(BaseModel):
+    upi: str
     parcel_code: str
     location: str
     province: str
@@ -33,6 +34,7 @@ class ParcelUpdate(BaseModel):
 class ParcelOut(ParcelCreate):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    has_pending_transaction: bool = False
     created_at: datetime
     updated_at: datetime
     current_owner_name: Optional[str] = None
@@ -156,3 +158,18 @@ class AuditLogOut(BaseModel):
 class ProfileUpdate(BaseModel):
     full_name: Optional[str] = None
     password: Optional[str] = Field(default=None, min_length=8)
+
+
+class PublicParcelOut(BaseModel):
+    """Safe public parcel information — no sensitive data exposed."""
+    upi: str
+    parcel_code: str
+    location: str
+    district: str
+    status: str
+    has_pending_transaction: bool = False
+    warning_message: Optional[str] = None
+    public_notice: str = (
+        "This is a preliminary check only. "
+        "Please verify with the official land authority for legal confirmation."
+    )

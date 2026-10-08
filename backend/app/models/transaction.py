@@ -6,6 +6,15 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
+TRANSACTION_STATUSES = (
+    "PENDING",
+    "UNDER_REVIEW",
+    "FLAGGED",
+    "APPROVED",
+    "REJECTED",
+    "COMPLETED",
+)
+
 
 class Transaction(Base):
     __tablename__ = "transactions"

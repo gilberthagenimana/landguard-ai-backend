@@ -37,6 +37,8 @@ def create_parcel(
 ):
     if db.query(Parcel).filter(Parcel.parcel_code == payload.parcel_code).first():
         raise HTTPException(status_code=400, detail="Parcel code already exists")
+    if db.query(Parcel).filter(Parcel.upi == payload.upi).first():
+        raise HTTPException(status_code=400, detail="UPI already exists")
     parcel = Parcel(**payload.model_dump())
     db.add(parcel)
     db.flush()
@@ -49,6 +51,14 @@ def create_parcel(
 @router.get("/{parcel_id}", response_model=ParcelOut)
 def get_parcel(parcel_id: int, db: Session = Depends(get_db), _current_user: User = Depends(read_roles)):
     parcel = db.query(Parcel).filter(Parcel.id == parcel_id).first()
+    if not parcel:
+        raise HTTPException(status_code=404, detail="Parcel not found")
+    return serialize_parcel(db, parcel)
+
+
+@router.get("/upi/{upi}", response_model=ParcelOut)
+def get_parcel_by_upi(upi: str, db: Session = Depends(get_db), _current_user: User = Depends(read_roles)):
+    parcel = db.query(Parcel).filter(Parcel.upi == upi).first()
     if not parcel:
         raise HTTPException(status_code=404, detail="Parcel not found")
     return serialize_parcel(db, parcel)
@@ -79,6 +89,20 @@ def list_ownership_history(parcel_id: int, db: Session = Depends(get_db), _curre
     rows = (
         db.query(OwnershipHistory)
         .filter(OwnershipHistory.parcel_id == parcel_id)
+        .order_by(OwnershipHistory.transfer_date.asc())
+        .all()
+    )
+    return [serialize_history(db, item) for item in rows]
+
+
+@router.get("/upi/{upi}/ownership-history", response_model=list[OwnershipHistoryOut])
+def list_ownership_history_by_upi(upi: str, db: Session = Depends(get_db), _current_user: User = Depends(read_roles)):
+    parcel = db.query(Parcel).filter(Parcel.upi == upi).first()
+    if not parcel:
+        raise HTTPException(status_code=404, detail="Parcel not found")
+    rows = (
+        db.query(OwnershipHistory)
+        .filter(OwnershipHistory.parcel_id == parcel.id)
         .order_by(OwnershipHistory.transfer_date.asc())
         .all()
     )

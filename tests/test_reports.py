@@ -124,7 +124,7 @@ def test_parcel_history_report(client):
     db.add(owner)
     db.flush()
     parcel = Parcel(
-        parcel_code="RW-RPT-001", location="Test Location", province="Kigali",
+        upi="UPI-RPT-001", parcel_code="RW-RPT-001", location="Test Location", province="Kigali",
         district="Gasabo", sector="Kacyiru", cell="Cell", village="Village", area_ha=1.0, status="ACTIVE",
     )
     db.add(parcel)

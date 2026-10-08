@@ -12,7 +12,10 @@ def _import_models() -> None:
     import app.models.parcel  # noqa: F401
     import app.models.risk_prediction  # noqa: F401
     import app.models.role  # noqa: F401
+    import app.models.subdivision  # noqa: F401
+    import app.models.system_config  # noqa: F401
     import app.models.transaction  # noqa: F401
+    import app.models.transaction_status_history  # noqa: F401
     import app.models.user  # noqa: F401
     import app.models.verification_result  # noqa: F401
 

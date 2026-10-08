@@ -59,6 +59,7 @@ def _setup():
     owner = Owner(owner_code="OWN-INT", full_name="Owner One", status="ACTIVE")
     buyer = Owner(owner_code="OWN-BUY", full_name="Buyer One", status="ACTIVE")
     parcel = Parcel(
+        upi="UPI-INT-001",
         parcel_code="RW-INT-001",
         location="Kigali",
         province="Kigali",

@@ -9,7 +9,7 @@ from app.models.transaction import Transaction
 from app.models.verification_result import VerificationResultRecord
 from app.schemas.verification import VerificationResult
 
-ACTIVE_TRANSACTION_STATUSES = ("PENDING", "UNDER_REVIEW", "ACTIVE")
+ACTIVE_TRANSACTION_STATUSES = ("PENDING", "UNDER_REVIEW", "FLAGGED", "ACTIVE")
 RECENT_DAYS = 30
 FREQUENCY_THRESHOLD = 2
 SUSPICIOUS_CHANGE_THRESHOLD = 2
@@ -40,6 +40,19 @@ def verify_transaction(db: Session, transaction: Transaction) -> list[Verificati
     )
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     recent_cutoff = now - timedelta(days=RECENT_DAYS)
+
+    results.append(
+        VerificationResult(
+            rule_name="UPI exists",
+            status="PASS" if parcel and parcel.upi else "FAIL",
+            severity="LOW" if parcel and parcel.upi else "HIGH",
+            explanation=(
+                "The parcel has a valid UPI (Unique Parcel Identifier) in the available records."
+                if parcel and parcel.upi
+                else "The parcel does not have a valid UPI in the available records."
+            ),
+        )
+    )
 
     results.append(
         VerificationResult(

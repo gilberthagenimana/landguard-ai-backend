@@ -63,7 +63,7 @@ def _setup_data():
     seller = Owner(owner_code="OWN-TX-001", full_name="Seller One", status="ACTIVE")
     buyer = Owner(owner_code="OWN-TX-002", full_name="Buyer One", status="ACTIVE")
     parcel = Parcel(
-        parcel_code="RW-TX-001", location="Test Location", province="Kigali",
+        upi="UPI-TX-001", parcel_code="RW-TX-001", location="Test Location", province="Kigali",
         district="Gasabo", sector="Kacyiru", cell="Cell", village="Village", area_ha=1.0, status="ACTIVE",
     )
     db.add_all([seller, buyer, parcel])

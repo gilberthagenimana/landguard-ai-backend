@@ -29,6 +29,7 @@ def test_risk_analysis_returns_explanation_for_transaction():
     db = SessionLocal()
     owner = Owner(owner_code="RISK-OWNER", full_name="Risk Owner", status="ACTIVE")
     parcel = Parcel(
+        upi="UPI-RISK-001",
         parcel_code="RW-RISK-001",
         location="Kigali",
         province="Kigali",
