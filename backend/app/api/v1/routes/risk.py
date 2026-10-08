@@ -3,6 +3,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.core.transaction_status import TransactionStatus
 from app.models.risk_prediction import RiskPrediction
 from app.models.transaction import Transaction
 from app.models.user import User
@@ -11,7 +12,10 @@ from app.services.audit.service import record_audit
 from app.services.auth.service import require_roles
 from app.services.risk.service import RiskModelUnavailable, analyze_transaction
 from app.services.serializers import ensure_case
-
+from app.services.transactions.service import (
+    InvalidTransactionTransition,
+    transition_transaction,
+)
 router = APIRouter(prefix="/risk-analysis", tags=["Risk Analysis"])
 
 
@@ -28,11 +32,25 @@ def analyze_transaction_route(
     current_user: User = Depends(require_roles("ADMIN", "OFFICER")),
 ):
     resolved_id = transaction_id or (payload.transaction_id if payload else None)
+
     if resolved_id is None:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="transaction_id is required")
-    transaction = db.query(Transaction).filter(Transaction.id == resolved_id).first()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="transaction_id is required",
+        )
+
+    transaction = (
+        db.query(Transaction)
+        .filter(Transaction.id == resolved_id)
+        .first()
+    )
+
     if transaction is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Transaction not found",
+        )
+
     try:
         result = analyze_transaction(db, transaction)
     except RiskModelUnavailable as exc:
@@ -40,21 +58,41 @@ def analyze_transaction_route(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Risk model is not trained. Run the ML training command first.",
         ) from exc
+
     if result.risk_level in {"MEDIUM", "HIGH"}:
-        ensure_case(db, transaction, assigned_to=current_user.id)
-        if transaction.status == "PENDING":
-            transaction.status = "UNDER_REVIEW"
+        ensure_case(
+            db,
+            transaction,
+            assigned_to=current_user.id,
+        )
+
+        if transaction.status == TransactionStatus.PENDING.value:
+            try:
+                transition_transaction(
+                    db,
+                    transaction,
+                    TransactionStatus.UNDER_REVIEW,
+                )
+            except InvalidTransactionTransition as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=str(exc),
+                ) from exc
+
     record_audit(
         db,
         action="AI_RISK_ANALYSIS",
         entity="Transaction",
         entity_id=transaction.transaction_code,
         user_id=current_user.id,
-        metadata={"risk_level": result.risk_level, "risk_score": result.risk_score},
+        metadata={
+            "risk_level": result.risk_level,
+            "risk_score": result.risk_score,
+        },
     )
+
     db.commit()
     return result
-
 
 @router.get("/transactions/{transaction_id}", response_model=list[RiskAnalysisResponse])
 def list_predictions(

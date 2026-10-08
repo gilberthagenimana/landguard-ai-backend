@@ -17,7 +17,7 @@ from app.api.v1.routes.transactions import router as transactions_router
 from app.api.v1.routes.users import router as users_router
 from app.api.v1.routes.verification import router as verification_router
 from app.core.config import settings
-from app.db.init_db import init_db
+
 
 limiter = Limiter(key_func=get_remote_address)
 
@@ -65,9 +65,6 @@ def unhandled_error(_request: Request, exc: Exception):
     return JSONResponse(status_code=500, content={"detail": "An unexpected server error occurred."})
 
 
-@app.on_event("startup")
-def startup() -> None:
-    init_db()
 
 
 @app.get("/health")

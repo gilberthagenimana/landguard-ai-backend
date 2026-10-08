@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal, Optional
-
+from app.core.transaction_status import TransactionStatus
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -93,7 +93,6 @@ class TransactionCreate(BaseModel):
     transaction_type: str
     transaction_date: datetime
     declared_value: Optional[Decimal] = None
-    status: str = "PENDING"
 
 
 class TransactionOut(BaseModel):

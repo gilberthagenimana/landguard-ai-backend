@@ -11,6 +11,7 @@ from app.schemas.domain import TransactionCreate, TransactionOut
 from app.services.audit.service import record_audit
 from app.services.auth.service import require_roles
 from app.services.serializers import next_transaction_code, serialize_transaction
+from app.core.transaction_status import TransactionStatus
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 write_roles = require_roles("ADMIN", "OFFICER")
@@ -42,7 +43,12 @@ def create_transaction(
         raise HTTPException(status_code=404, detail="Seller not found")
     if payload.buyer_owner_id and not db.query(Owner).filter(Owner.id == payload.buyer_owner_id).first():
         raise HTTPException(status_code=404, detail="Buyer not found")
-    item = Transaction(transaction_code=next_transaction_code(db), created_by=current_user.id, **payload.model_dump())
+    item = Transaction(
+    transaction_code=next_transaction_code(db),
+    created_by=current_user.id,
+    status=TransactionStatus.PENDING.value,
+    **payload.model_dump(),
+)
     db.add(item)
     db.flush()
     record_audit(db, action="TRANSACTION_CREATED", entity="Transaction", entity_id=item.transaction_code, user_id=current_user.id)
