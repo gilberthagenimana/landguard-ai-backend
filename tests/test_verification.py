@@ -42,6 +42,7 @@ def make_transaction(db, *, recent_change=False, with_conflict=False, seller_mat
     other_owner = Owner(owner_code="OWN-002", full_name="Other Owner", status="ACTIVE")
     buyer = Owner(owner_code="OWN-003", full_name="Buyer", status="ACTIVE")
     parcel = Parcel(
+        upi="UPI-VERIFY-001",
         parcel_code="RW-TEST-001",
         location="Kigali",
         province="Kigali",
@@ -80,7 +81,7 @@ def make_transaction(db, *, recent_change=False, with_conflict=False, seller_mat
                 seller_owner_id=owner.id,
                 buyer_owner_id=other_owner.id,
                 transaction_type="SALE",
-                status="ACTIVE",
+                status="PENDING",
                 transaction_date=datetime.utcnow(),
             )
         )
@@ -91,7 +92,7 @@ def make_transaction(db, *, recent_change=False, with_conflict=False, seller_mat
 def test_verification_passes_for_consistent_transaction(db):
     transaction = make_transaction(db)
     results = verify_transaction(db, transaction)
-    assert len(results) == 9
+    assert len(results) == 10
     assert all(result.status == "PASS" for result in results)
 
 

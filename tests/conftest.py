@@ -163,6 +163,7 @@ def create_test_parcel(db, **kwargs):
         "status": "ACTIVE",
     }
     defaults.update(kwargs)
+    defaults.setdefault("upi", f"DEMO-UPI-{defaults['parcel_code']}")
     parcel = Parcel(**defaults)
     db.add(parcel)
     db.commit()

@@ -18,17 +18,20 @@ from app.models.role import Role  # noqa: F401
 from app.models.transaction import Transaction
 from app.models.user import User  # noqa: F401
 from app.models.verification_result import VerificationResultRecord  # noqa: F401
-from app.services.risk.service import analyze_transaction
+from app.services.risk import service as risk_service
+from ml.scripts.generate_dataset import generate_dataset
+from ml.training.train import train_models
 
 engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(bind=engine)
 Base.metadata.create_all(bind=engine)
 
 
-def test_risk_analysis_returns_explanation_for_transaction():
+def test_risk_analysis_returns_explanation_for_transaction(monkeypatch, tmp_path):
     db = SessionLocal()
     owner = Owner(owner_code="RISK-OWNER", full_name="Risk Owner", status="ACTIVE")
     parcel = Parcel(
+        upi="UPI-RISK-001",
         parcel_code="RW-RISK-001",
         location="Kigali",
         province="Kigali",
@@ -60,7 +63,17 @@ def test_risk_analysis_returns_explanation_for_transaction():
     db.add(transaction)
     db.commit()
 
-    result = analyze_transaction(db, transaction)
+    dataset_path = tmp_path / "synthetic_transactions.csv"
+    model_dir = tmp_path / "models"
+    generate_dataset(rows=300, seed=17).to_csv(dataset_path, index=False)
+    train_models(dataset_path, model_dir)
+    monkeypatch.setattr(
+        risk_service,
+        "_model_path",
+        lambda: model_dir / "risk_model.joblib",
+    )
+
+    result = risk_service.analyze_transaction(db, transaction)
 
     assert result.transaction_id == transaction.id
     assert result.risk_level in {"LOW", "MEDIUM", "HIGH"}

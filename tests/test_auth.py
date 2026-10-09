@@ -180,3 +180,52 @@ def test_invalid_token_rejected(client):
         headers={"Authorization": "Bearer invalid-token-here"},
     )
     assert response.status_code == 401
+
+def test_account_lockout_after_five_failed_attempts(client):
+    _create_user("lockout1", "lockout@test.local", "CorrectPass123!", "OFFICER")
+
+    for attempt in range(5):
+        response = client.post(
+            "/api/auth/login",
+            json={
+                "email": "lockout@test.local",
+                "password": "WrongPassword!",
+                "role": "OFFICER",
+            },
+        )
+        assert response.status_code == 401, f"Attempt {attempt + 1}: {response.text}"
+
+    response = client.post(
+        "/api/auth/login",
+        json={
+            "email": "lockout@test.local",
+            "password": "CorrectPass123!",
+            "role": "OFFICER",
+        },
+    )
+    assert response.status_code == 423
+
+    db = TestingSessionLocal()
+    try:
+        user = db.query(User).filter_by(email="lockout@test.local").one()
+        assert user.failed_login_attempts == 5
+    finally:
+        db.close()
+
+
+def test_login_token_contains_selected_role(client):
+    from app.core.security import decode_access_token
+
+    _create_user("roleclaim1", "roleclaim@test.local", "CorrectPass123!", "OFFICER")
+
+    response = client.post(
+        "/api/auth/login",
+        json={
+            "email": "roleclaim@test.local",
+            "password": "CorrectPass123!",
+            "role": "OFFICER",
+        },
+    )
+    assert response.status_code == 200
+    claims = decode_access_token(response.json()["access_token"])
+    assert claims["role"] == "OFFICER"

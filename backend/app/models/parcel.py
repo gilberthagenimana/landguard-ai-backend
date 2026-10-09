@@ -10,6 +10,7 @@ class Parcel(Base):
     __tablename__ = "parcels"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    upi: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     parcel_code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
     location: Mapped[str] = mapped_column(String(255), nullable=False)
     province: Mapped[str] = mapped_column(String(120), nullable=False, default="Kigali")
@@ -20,6 +21,7 @@ class Parcel(Base):
     area_ha: Mapped[float] = mapped_column(Float, nullable=False)
     status: Mapped[str] = mapped_column(String(50), default="ACTIVE", index=True)
     registration_reference: Mapped[str | None] = mapped_column(String(150), nullable=True)
+    has_pending_transaction: Mapped[bool] = mapped_column(default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,

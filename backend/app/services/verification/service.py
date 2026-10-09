@@ -10,13 +10,11 @@ from app.models.transaction import Transaction
 from app.models.verification_result import VerificationResultRecord
 from app.schemas.verification import VerificationResult
 
-
 ACTIVE_TRANSACTION_STATUSES = (
     TransactionStatus.PENDING.value,
     TransactionStatus.UNDER_REVIEW.value,
     TransactionStatus.FLAGGED.value,
 )
-
 RECENT_DAYS = 30
 FREQUENCY_THRESHOLD = 2
 SUSPICIOUS_CHANGE_THRESHOLD = 2
@@ -70,6 +68,19 @@ def verify_transaction(
     # ---------------------------------------------------------
     # Rule 1: Parcel exists
     # ---------------------------------------------------------
+    results.append(
+        VerificationResult(
+            rule_name="UPI recorded",
+            status="PASS" if parcel and parcel.upi else "FAIL",
+            severity="LOW" if parcel and parcel.upi else "HIGH",
+            explanation=(
+                "A parcel identifier is recorded in the system. Its official status has not been independently verified."
+                if parcel and parcel.upi
+                else "No parcel identifier is recorded in the available system records."
+            ),
+        )
+    )
+
     results.append(
         VerificationResult(
             rule_name="Parcel exists",

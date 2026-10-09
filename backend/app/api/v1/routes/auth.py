@@ -11,7 +11,7 @@ from app.schemas.auth import LoginRequest, TokenResponse
 from app.schemas.domain import ProfileUpdate
 from app.schemas.user import UserCreate, UserOut
 from app.services.audit.service import record_audit
-from app.services.auth.service import authenticate_user, create_auth_token, get_current_user, require_roles
+from app.services.auth.service import authenticate_user, create_auth_token, get_current_user, require_roles, is_account_locked, record_failed_login, reset_failed_logins
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
@@ -21,20 +21,72 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)):
     try:
         identifier = payload.identifier()
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=str(exc),
+        ) from exc
+
+    existing_user = (
+        db.query(User)
+        .filter((User.email == identifier) | (User.username == identifier))
+        .first()
+    )
+
+    if existing_user and is_account_locked(existing_user):
+        record_audit(
+            db,
+            action="LOGIN_LOCKED",
+            entity="User",
+            entity_id=identifier,
+            details="Account temporarily locked",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_423_LOCKED,
+            detail="Account temporarily locked due to too many failed attempts. Try again later.",
+        )
 
     user = authenticate_user(db, identifier, payload.password)
     if not user:
-        record_audit(db, action="LOGIN_FAILED", entity="User", entity_id=identifier, details="Invalid credentials")
+        if existing_user and existing_user.is_active:
+            record_failed_login(db, existing_user)
+        record_audit(
+            db,
+            action="LOGIN_FAILED",
+            entity="User",
+            entity_id=identifier,
+            details="Invalid credentials",
+        )
         db.commit()
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid email or password",
+        )
 
     assigned_roles = {role.name for role in user.roles}
     if payload.role.value not in assigned_roles:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Selected role is not assigned to this account")
+        record_audit(
+            db,
+            action="LOGIN_ROLE_REJECTED",
+            entity="User",
+            entity_id=identifier,
+            details="Selected role is not assigned to this account",
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Selected role is not assigned to this account",
+        )
 
-    token = create_auth_token(user)
-    record_audit(db, action="LOGIN", entity="User", entity_id=str(user.id), user_id=user.id)
+    reset_failed_logins(db, user)
+    token = create_auth_token(user, role=payload.role.value)
+    record_audit(
+        db,
+        action="LOGIN",
+        entity="User",
+        entity_id=str(user.id),
+        user_id=user.id,
+    )
     db.commit()
     return TokenResponse(access_token=token)
 

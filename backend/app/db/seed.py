@@ -12,7 +12,7 @@ from app.models.transaction import Transaction
 from app.models.user import User
 from app.services.audit.service import record_audit
 
-DEMO_NOTE = "Synthetic demo record for academic testing. Not official Rwandan land data."
+DEMO_NOTE = "DEMO/SYNTHETIC DATA - NOT OFFICIAL LAND RECORDS"
 
 DEMO_ROLES = {
     "ADMIN": "Full system administration access.",
@@ -223,6 +223,7 @@ def _create_demo_parcels(db: Session) -> dict[str, Parcel]:
 
         if parcel is None:
             parcel = Parcel(
+                upi=f"DEMO-UPI-{code}",
                 parcel_code=code,
                 location=location,
                 province=province,
@@ -235,6 +236,10 @@ def _create_demo_parcels(db: Session) -> dict[str, Parcel]:
                 registration_reference=registration_reference,
             )
             db.add(parcel)
+            db.flush()
+        elif not parcel.upi:
+            # Backfill only missing synthetic demo identifiers.
+            parcel.upi = f"DEMO-UPI-{code}"
             db.flush()
 
         parcels[code] = parcel
@@ -335,7 +340,6 @@ def _create_demo_transactions(
         return
 
     now = datetime.utcnow()
-
     transactions = [
         Transaction(
             transaction_code="TX-98231",
@@ -363,6 +367,8 @@ def _create_demo_transactions(
 
     db.add_all(transactions)
     db.flush()
+
+
 
 
 def seed_demo_data(db: Session) -> None:

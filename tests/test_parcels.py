@@ -72,6 +72,7 @@ def test_create_parcel_success(client):
         "/api/parcels",
         headers={"Authorization": f"Bearer {token}"},
         json={
+            "upi": "UPI-PARCEL-001",
             "parcel_code": "RW-PARCEL-001",
             "location": "Kigali / Test / Cell",
             "province": "Kigali",
@@ -85,6 +86,7 @@ def test_create_parcel_success(client):
     )
     assert response.status_code == 201
     data = response.json()
+    assert data["upi"] == "UPI-PARCEL-001"
     assert data["parcel_code"] == "RW-PARCEL-001"
     assert data["area_ha"] == 2.5
     assert data["status"] == "ACTIVE"
@@ -93,6 +95,7 @@ def test_create_parcel_success(client):
 def test_create_parcel_duplicate_code(client):
     token = _get_officer_token()
     payload = {
+        "upi": "UPI-DUPLICATE-001",
         "parcel_code": "RW-DUPLICATE-001",
         "location": "Test Location",
         "province": "Kigali",
@@ -108,10 +111,30 @@ def test_create_parcel_duplicate_code(client):
     assert response2.status_code == 400
 
 
+def test_create_parcel_duplicate_upi(client):
+    token = _get_officer_token()
+    payload = {
+        "upi": "UPI-DUP-001",
+        "parcel_code": "RW-DUP-001",
+        "location": "Test Location",
+        "province": "Kigali",
+        "district": "Gasabo",
+        "sector": "Kacyiru",
+        "cell": "Test Cell",
+        "village": "Test Village",
+        "area_ha": 1.0,
+    }
+    response1 = client.post("/api/parcels", headers={"Authorization": f"Bearer {token}"}, json=payload)
+    assert response1.status_code == 201
+    payload2 = {**payload, "parcel_code": "RW-DUP-002"}
+    response2 = client.post("/api/parcels", headers={"Authorization": f"Bearer {token}"}, json=payload2)
+    assert response2.status_code == 400
+
+
 def test_list_parcels(client):
     token = _get_officer_token()
     client.post("/api/parcels", headers={"Authorization": f"Bearer {token}"}, json={
-        "parcel_code": "RW-LIST-001", "location": "Test Location", "province": "Kigali",
+        "upi": "UPI-LIST-001", "parcel_code": "RW-LIST-001", "location": "Test Location", "province": "Kigali",
         "district": "Gasabo", "sector": "Kacyiru", "cell": "Test Cell", "village": "Test Village", "area_ha": 1.0,
     })
     response = client.get("/api/parcels", headers={"Authorization": f"Bearer {token}"})
@@ -124,7 +147,7 @@ def test_list_parcels(client):
 def test_search_parcels(client):
     token = _get_officer_token()
     client.post("/api/parcels", headers={"Authorization": f"Bearer {token}"}, json={
-        "parcel_code": "RW-SEARCH-001", "location": "Kigali / Search / Cell", "province": "Kigali",
+        "upi": "UPI-SEARCH-001", "parcel_code": "RW-SEARCH-001", "location": "Kigali / Search / Cell", "province": "Kigali",
         "district": "Gasabo", "sector": "Kacyiru", "cell": "Search Cell", "village": "Search Village", "area_ha": 1.0,
     })
     response = client.get("/api/parcels?q=SEARCH", headers={"Authorization": f"Bearer {token}"})
@@ -136,7 +159,7 @@ def test_search_parcels(client):
 def test_get_parcel_by_id(client):
     token = _get_officer_token()
     create_resp = client.post("/api/parcels", headers={"Authorization": f"Bearer {token}"}, json={
-        "parcel_code": "RW-GET-001", "location": "Test Location", "province": "Kigali",
+        "upi": "UPI-GET-001", "parcel_code": "RW-GET-001", "location": "Test Location", "province": "Kigali",
         "district": "Gasabo", "sector": "Kacyiru", "cell": "Test Cell", "village": "Test Village", "area_ha": 1.0,
     })
     parcel_id = create_resp.json()["id"]
@@ -154,7 +177,7 @@ def test_get_nonexistent_parcel(client):
 def test_update_parcel(client):
     token = _get_officer_token()
     create_resp = client.post("/api/parcels", headers={"Authorization": f"Bearer {token}"}, json={
-        "parcel_code": "RW-UPDATE-001", "location": "Original Location", "province": "Kigali",
+        "upi": "UPI-UPDATE-001", "parcel_code": "RW-UPDATE-001", "location": "Original Location", "province": "Kigali",
         "district": "Gasabo", "sector": "Kacyiru", "cell": "Test Cell", "village": "Test Village", "area_ha": 1.0,
     })
     parcel_id = create_resp.json()["id"]
@@ -168,7 +191,7 @@ def test_update_parcel(client):
 def test_parcel_ownership_history_empty(client):
     token = _get_officer_token()
     create_resp = client.post("/api/parcels", headers={"Authorization": f"Bearer {token}"}, json={
-        "parcel_code": "RW-HISTORY-001", "location": "Test Location", "province": "Kigali",
+        "upi": "UPI-HISTORY-001", "parcel_code": "RW-HISTORY-001", "location": "Test Location", "province": "Kigali",
         "district": "Gasabo", "sector": "Kacyiru", "cell": "Test Cell", "village": "Test Village", "area_ha": 1.0,
     })
     parcel_id = create_resp.json()["id"]
@@ -180,10 +203,55 @@ def test_parcel_ownership_history_empty(client):
 def test_parcel_transactions_empty(client):
     token = _get_officer_token()
     create_resp = client.post("/api/parcels", headers={"Authorization": f"Bearer {token}"}, json={
-        "parcel_code": "RW-TX-001", "location": "Test Location", "province": "Kigali",
+        "upi": "UPI-TX-001", "parcel_code": "RW-TX-001", "location": "Test Location", "province": "Kigali",
         "district": "Gasabo", "sector": "Kacyiru", "cell": "Test Cell", "village": "Test Village", "area_ha": 1.0,
     })
     parcel_id = create_resp.json()["id"]
     response = client.get(f"/api/parcels/{parcel_id}/transactions", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_manual_ownership_history_write_is_forbidden(client):
+    token = _get_officer_token()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    parcel_response = client.post(
+        "/api/parcels",
+        headers=headers,
+        json={
+            "upi": "DEMO-UPI-MANUAL-HISTORY-TEST",
+            "parcel_code": "RW-MANUAL-HISTORY-TEST",
+            "location": "Kigali / Test / Cell",
+            "province": "Kigali",
+            "district": "Gasabo",
+            "sector": "Kacyiru",
+            "cell": "Test Cell",
+            "village": "Test Village",
+            "area_ha": 1.0,
+            "status": "ACTIVE",
+        },
+    )
+    assert parcel_response.status_code == 201, parcel_response.text
+    parcel_id = parcel_response.json()["id"]
+
+    response = client.post(
+        f"/api/parcels/{parcel_id}/ownership-history",
+        headers=headers,
+        json={
+            "new_owner_id": 99999,
+            "transfer_date": "2025-01-01T00:00:00",
+            "reason_type": "TRANSFER",
+            "supporting_reference": "MANUAL-TEST",
+        },
+    )
+
+    assert response.status_code == 403, response.text
+    assert "only be appended" in response.json()["detail"].lower()
+
+    history_response = client.get(
+        f"/api/parcels/{parcel_id}/ownership-history",
+        headers=headers,
+    )
+    assert history_response.status_code == 200, history_response.text
+    assert history_response.json() == []

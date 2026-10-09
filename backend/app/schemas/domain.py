@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class ParcelCreate(BaseModel):
+    upi: str
     parcel_code: str
     location: str
     province: str
@@ -33,6 +34,7 @@ class ParcelUpdate(BaseModel):
 class ParcelOut(ParcelCreate):
     model_config = ConfigDict(from_attributes=True)
     id: int
+    has_pending_transaction: bool = False
     created_at: datetime
     updated_at: datetime
     current_owner_name: Optional[str] = None
@@ -155,3 +157,26 @@ class AuditLogOut(BaseModel):
 class ProfileUpdate(BaseModel):
     full_name: Optional[str] = None
     password: Optional[str] = Field(default=None, min_length=8)
+
+
+
+class PublicParcelOut(BaseModel):
+    """Safe public parcel information; never implies official verification."""
+
+    upi: str
+    parcel_code: str
+    location: str
+    district: str
+    status: str
+    has_pending_transaction: bool = False
+    warning_message: Optional[str] = None
+
+    record_classification: str = "UNVERIFIED_LOCAL_RECORD"
+    official_verification: str = "NOT_INDEPENDENTLY_VERIFIED"
+
+    public_notice: str = (
+        "LandGuard AI is a decision-support prototype using available "
+        "system records. This result is not an official land registry "
+        "record or legal confirmation of ownership. Verify with the "
+        "authorized land authority before making a transaction."
+    )
