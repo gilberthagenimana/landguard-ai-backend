@@ -1,7 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal, Optional
-
+from app.core.transaction_status import TransactionStatus
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -95,7 +95,6 @@ class TransactionCreate(BaseModel):
     transaction_type: str
     transaction_date: datetime
     declared_value: Optional[Decimal] = None
-    status: str = "PENDING"
 
 
 class TransactionOut(BaseModel):
@@ -160,8 +159,10 @@ class ProfileUpdate(BaseModel):
     password: Optional[str] = Field(default=None, min_length=8)
 
 
+
 class PublicParcelOut(BaseModel):
-    """Safe public parcel information — no sensitive data exposed."""
+    """Safe public parcel information; never implies official verification."""
+
     upi: str
     parcel_code: str
     location: str
@@ -169,7 +170,13 @@ class PublicParcelOut(BaseModel):
     status: str
     has_pending_transaction: bool = False
     warning_message: Optional[str] = None
+
+    record_classification: str = "UNVERIFIED_LOCAL_RECORD"
+    official_verification: str = "NOT_INDEPENDENTLY_VERIFIED"
+
     public_notice: str = (
-        "This is a preliminary check only. "
-        "Please verify with the official land authority for legal confirmation."
+        "LandGuard AI is a decision-support prototype using available "
+        "system records. This result is not an official land registry "
+        "record or legal confirmation of ownership. Verify with the "
+        "authorized land authority before making a transaction."
     )

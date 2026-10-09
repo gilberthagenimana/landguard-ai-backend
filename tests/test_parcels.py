@@ -210,3 +210,48 @@ def test_parcel_transactions_empty(client):
     response = client.get(f"/api/parcels/{parcel_id}/transactions", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 200
     assert response.json() == []
+
+
+def test_manual_ownership_history_write_is_forbidden(client):
+    token = _get_officer_token()
+    headers = {"Authorization": f"Bearer {token}"}
+
+    parcel_response = client.post(
+        "/api/parcels",
+        headers=headers,
+        json={
+            "upi": "DEMO-UPI-MANUAL-HISTORY-TEST",
+            "parcel_code": "RW-MANUAL-HISTORY-TEST",
+            "location": "Kigali / Test / Cell",
+            "province": "Kigali",
+            "district": "Gasabo",
+            "sector": "Kacyiru",
+            "cell": "Test Cell",
+            "village": "Test Village",
+            "area_ha": 1.0,
+            "status": "ACTIVE",
+        },
+    )
+    assert parcel_response.status_code == 201, parcel_response.text
+    parcel_id = parcel_response.json()["id"]
+
+    response = client.post(
+        f"/api/parcels/{parcel_id}/ownership-history",
+        headers=headers,
+        json={
+            "new_owner_id": 99999,
+            "transfer_date": "2025-01-01T00:00:00",
+            "reason_type": "TRANSFER",
+            "supporting_reference": "MANUAL-TEST",
+        },
+    )
+
+    assert response.status_code == 403, response.text
+    assert "only be appended" in response.json()["detail"].lower()
+
+    history_response = client.get(
+        f"/api/parcels/{parcel_id}/ownership-history",
+        headers=headers,
+    )
+    assert history_response.status_code == 200, history_response.text
+    assert history_response.json() == []

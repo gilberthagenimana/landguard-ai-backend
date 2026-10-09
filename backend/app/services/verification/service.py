@@ -2,6 +2,7 @@ from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
+from app.core.transaction_status import TransactionStatus
 from app.models.owner import Owner
 from app.models.ownership_history import OwnershipHistory
 from app.models.parcel import Parcel
@@ -9,7 +10,11 @@ from app.models.transaction import Transaction
 from app.models.verification_result import VerificationResultRecord
 from app.schemas.verification import VerificationResult
 
-ACTIVE_TRANSACTION_STATUSES = ("PENDING", "UNDER_REVIEW", "FLAGGED", "ACTIVE")
+ACTIVE_TRANSACTION_STATUSES = (
+    TransactionStatus.PENDING.value,
+    TransactionStatus.UNDER_REVIEW.value,
+    TransactionStatus.FLAGGED.value,
+)
 RECENT_DAYS = 30
 FREQUENCY_THRESHOLD = 2
 SUSPICIOUS_CHANGE_THRESHOLD = 2
@@ -19,37 +24,59 @@ def _current_owner_id(db: Session, parcel_id: int) -> int | None:
     latest = (
         db.query(OwnershipHistory)
         .filter(OwnershipHistory.parcel_id == parcel_id)
-        .order_by(OwnershipHistory.transfer_date.desc(), OwnershipHistory.id.desc())
+        .order_by(
+            OwnershipHistory.transfer_date.desc(),
+            OwnershipHistory.id.desc(),
+        )
         .first()
     )
+
     return latest.new_owner_id if latest else None
 
 
-def verify_transaction(db: Session, transaction: Transaction) -> list[VerificationResult]:
+def verify_transaction(
+    db: Session,
+    transaction: Transaction,
+) -> list[VerificationResult]:
     results: list[VerificationResult] = []
-    parcel = db.query(Parcel).filter(Parcel.id == transaction.parcel_id).first()
+
+    parcel = (
+        db.query(Parcel)
+        .filter(Parcel.id == transaction.parcel_id)
+        .first()
+    )
+
     seller = (
-        db.query(Owner).filter(Owner.id == transaction.seller_owner_id).first()
+        db.query(Owner)
+        .filter(Owner.id == transaction.seller_owner_id)
+        .first()
         if transaction.seller_owner_id
         else None
     )
+
     buyer = (
-        db.query(Owner).filter(Owner.id == transaction.buyer_owner_id).first()
+        db.query(Owner)
+        .filter(Owner.id == transaction.buyer_owner_id)
+        .first()
         if transaction.buyer_owner_id
         else None
     )
+
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     recent_cutoff = now - timedelta(days=RECENT_DAYS)
 
+    # ---------------------------------------------------------
+    # Rule 1: Parcel exists
+    # ---------------------------------------------------------
     results.append(
         VerificationResult(
-            rule_name="UPI exists",
+            rule_name="UPI recorded",
             status="PASS" if parcel and parcel.upi else "FAIL",
             severity="LOW" if parcel and parcel.upi else "HIGH",
             explanation=(
-                "The parcel has a valid UPI (Unique Parcel Identifier) in the available records."
+                "A parcel identifier is recorded in the system. Its official status has not been independently verified."
                 if parcel and parcel.upi
-                else "The parcel does not have a valid UPI in the available records."
+                else "No parcel identifier is recorded in the available system records."
             ),
         )
     )
@@ -60,15 +87,30 @@ def verify_transaction(db: Session, transaction: Transaction) -> list[Verificati
             status="PASS" if parcel else "FAIL",
             severity="LOW" if parcel else "HIGH",
             explanation=(
-                "The transaction references an existing parcel in the available records."
+                "The transaction references an existing parcel in the "
+                "available records."
                 if parcel
-                else "The transaction references a parcel that is not present in the available records."
+                else "The transaction references a parcel that is not "
+                "present in the available records."
             ),
         )
     )
 
-    current_owner_id = _current_owner_id(db, transaction.parcel_id) if parcel else None
-    seller_matches = bool(seller and current_owner_id and seller.id == current_owner_id)
+    # ---------------------------------------------------------
+    # Rule 2: Seller matches current recorded owner
+    # ---------------------------------------------------------
+    current_owner_id = (
+        _current_owner_id(db, transaction.parcel_id)
+        if parcel
+        else None
+    )
+
+    seller_matches = bool(
+        seller
+        and current_owner_id
+        and seller.id == current_owner_id
+    )
+
     results.append(
         VerificationResult(
             rule_name="Seller ownership match",
@@ -77,25 +119,43 @@ def verify_transaction(db: Session, transaction: Transaction) -> list[Verificati
             explanation=(
                 "The seller matches the latest recorded owner."
                 if seller_matches
-                else "The seller does not match the registered owner in the available system records."
+                else "The seller does not match the registered owner "
+                "in the available system records."
             ),
         )
     )
 
-    authorized = bool(seller and seller.status == "ACTIVE" and (not parcel or parcel.status in {"ACTIVE", "REGISTERED"}))
+    # ---------------------------------------------------------
+    # Rule 3: Seller and parcel authorization/status
+    # ---------------------------------------------------------
+    authorized = bool(
+        seller
+        and seller.status == "ACTIVE"
+        and (
+            not parcel
+            or parcel.status in {"ACTIVE", "REGISTERED"}
+        )
+    )
+
     results.append(
         VerificationResult(
             rule_name="Seller authorization",
             status="PASS" if authorized else "WARNING",
             severity="LOW" if authorized else "HIGH",
             explanation=(
-                "The seller and parcel are recorded as active, which supports proceeding with additional checks."
+                "The seller and parcel are recorded as active, which "
+                "supports proceeding with additional checks."
                 if authorized
-                else "The seller or parcel status does not show the authorization expected from available records. Additional verification is recommended."
+                else "The seller or parcel status does not show the "
+                "authorization expected from available records. "
+                "Additional verification is recommended."
             ),
         )
     )
 
+    # ---------------------------------------------------------
+    # Rule 4: Existing active/pending/flagged transaction
+    # ---------------------------------------------------------
     other_active = (
         db.query(Transaction)
         .filter(
@@ -105,41 +165,70 @@ def verify_transaction(db: Session, transaction: Transaction) -> list[Verificati
         )
         .all()
     )
+
     results.append(
         VerificationResult(
             rule_name="Active transaction already exists",
             status="FAIL" if other_active else "PASS",
             severity="HIGH" if other_active else "LOW",
             explanation=(
-                "Another active transaction already exists for this parcel and should be reviewed before continuing."
+                "Another unresolved transaction already exists for "
+                "this parcel and should be reviewed before continuing."
                 if other_active
-                else "No other active transaction was found for this parcel."
+                else "No other unresolved transaction was found for "
+                "this parcel."
             ),
         )
     )
 
+    # ---------------------------------------------------------
+    # Rule 5: Conflicting transaction records
+    # ---------------------------------------------------------
     conflicting = [
         item
         for item in other_active
-        if item.buyer_owner_id and item.buyer_owner_id != transaction.buyer_owner_id
+        if (
+            item.buyer_owner_id
+            and item.buyer_owner_id != transaction.buyer_owner_id
+        )
     ]
+
     results.append(
         VerificationResult(
             rule_name="Conflicting transaction records",
-            status="FAIL" if conflicting else ("WARNING" if other_active else "PASS"),
-            severity="HIGH" if conflicting else ("MEDIUM" if other_active else "LOW"),
+            status=(
+                "FAIL"
+                if conflicting
+                else "WARNING"
+                if other_active
+                else "PASS"
+            ),
+            severity=(
+                "HIGH"
+                if conflicting
+                else "MEDIUM"
+                if other_active
+                else "LOW"
+            ),
             explanation=(
-                "Possible duplicate transaction: the same parcel appears in another active record with a different buyer."
+                "Possible duplicate transaction: the same parcel "
+                "appears in another unresolved record with a "
+                "different buyer."
                 if conflicting
                 else (
-                    "Another active record exists for this parcel, but buyer details do not currently conflict."
+                    "Another unresolved record exists for this parcel, "
+                    "but buyer details do not currently conflict."
                     if other_active
-                    else "No conflicting transaction records were found for this parcel."
+                    else "No conflicting transaction records were "
+                    "found for this parcel."
                 )
             ),
         )
     )
 
+    # ---------------------------------------------------------
+    # Rule 6: Recent ownership change
+    # ---------------------------------------------------------
     recent_changes = (
         db.query(OwnershipHistory)
         .filter(
@@ -148,19 +237,25 @@ def verify_transaction(db: Session, transaction: Transaction) -> list[Verificati
         )
         .all()
     )
+
     results.append(
         VerificationResult(
             rule_name="Recent ownership change",
             status="WARNING" if recent_changes else "PASS",
             severity="MEDIUM" if recent_changes else "LOW",
             explanation=(
-                "WARNING: Recent ownership change detected. This is a risk indicator, not proof of fraud."
+                "WARNING: Recent ownership change detected. This is "
+                "a risk indicator, not proof of fraud."
                 if recent_changes
-                else "No ownership change was recorded within the last 30 days."
+                else "No ownership change was recorded within the "
+                "last 30 days."
             ),
         )
     )
 
+    # ---------------------------------------------------------
+    # Rule 7: Important fields consistent
+    # ---------------------------------------------------------
     inconsistent = not all(
         [
             transaction.parcel_id,
@@ -170,20 +265,30 @@ def verify_transaction(db: Session, transaction: Transaction) -> list[Verificati
             transaction.seller_owner_id,
             transaction.buyer_owner_id,
         ]
-    ) or (seller and buyer and seller.id == buyer.id)
+    ) or (
+        seller
+        and buyer
+        and seller.id == buyer.id
+    )
+
     results.append(
         VerificationResult(
             rule_name="Important fields consistent",
             status="FAIL" if inconsistent else "PASS",
             severity="MEDIUM" if inconsistent else "LOW",
             explanation=(
-                "Important transaction fields are missing or inconsistent in the available records."
+                "Important transaction fields are missing or "
+                "inconsistent in the available records."
                 if inconsistent
-                else "Required transaction fields are present and internally consistent."
+                else "Required transaction fields are present and "
+                "internally consistent."
             ),
         )
     )
 
+    # ---------------------------------------------------------
+    # Rule 8: Unusual transaction frequency
+    # ---------------------------------------------------------
     recent_transactions = (
         db.query(Transaction)
         .filter(
@@ -192,35 +297,60 @@ def verify_transaction(db: Session, transaction: Transaction) -> list[Verificati
         )
         .count()
     )
-    unusual_frequency = recent_transactions > FREQUENCY_THRESHOLD
+
+    unusual_frequency = (
+        recent_transactions > FREQUENCY_THRESHOLD
+    )
+
     results.append(
         VerificationResult(
             rule_name="Unusual transaction frequency",
             status="WARNING" if unusual_frequency else "PASS",
             severity="MEDIUM" if unusual_frequency else "LOW",
             explanation=(
-                f"This parcel has {recent_transactions} recorded transactions in the last {RECENT_DAYS} days, which is unusual compared with typical demo patterns."
+                f"This parcel has {recent_transactions} recorded "
+                f"transactions in the last {RECENT_DAYS} days, which "
+                "is unusual compared with typical demo patterns."
                 if unusual_frequency
-                else "Transaction frequency for this parcel is within the expected range for the available records."
+                else "Transaction frequency for this parcel is within "
+                "the expected range for the available records."
             ),
         )
     )
 
-    multiple_changes = len(recent_changes) >= SUSPICIOUS_CHANGE_THRESHOLD
+    # ---------------------------------------------------------
+    # Rule 9: Multiple recent ownership changes
+    # ---------------------------------------------------------
+    multiple_changes = (
+        len(recent_changes) >= SUSPICIOUS_CHANGE_THRESHOLD
+    )
+
     results.append(
         VerificationResult(
             rule_name="Multiple recent ownership changes",
             status="WARNING" if multiple_changes else "PASS",
             severity="HIGH" if multiple_changes else "LOW",
             explanation=(
-                "Multiple ownership changes were recorded within a short period and require additional verification."
+                "Multiple ownership changes were recorded within a "
+                "short period and require additional verification."
                 if multiple_changes
-                else "There are not multiple ownership changes within the recent review window."
+                else "There are not multiple ownership changes within "
+                "the recent review window."
             ),
         )
     )
 
-    db.query(VerificationResultRecord).filter(VerificationResultRecord.transaction_id == transaction.id).delete()
+    # ---------------------------------------------------------
+    # Persist verification results
+    # ---------------------------------------------------------
+    (
+        db.query(VerificationResultRecord)
+        .filter(
+            VerificationResultRecord.transaction_id == transaction.id
+        )
+        .delete()
+    )
+
     for item in results:
         db.add(
             VerificationResultRecord(
@@ -231,5 +361,7 @@ def verify_transaction(db: Session, transaction: Transaction) -> list[Verificati
                 explanation=item.explanation,
             )
         )
+
     db.flush()
+
     return results

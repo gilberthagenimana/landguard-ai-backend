@@ -109,22 +109,27 @@ def list_ownership_history_by_upi(upi: str, db: Session = Depends(get_db), _curr
     return [serialize_history(db, item) for item in rows]
 
 
-@router.post("/{parcel_id}/ownership-history", response_model=OwnershipHistoryOut, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/{parcel_id}/ownership-history",
+    response_model=OwnershipHistoryOut,
+    status_code=status.HTTP_403_FORBIDDEN,
+)
 def add_ownership_history(
     parcel_id: int,
     payload: OwnershipHistoryCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(write_roles),
 ):
+    """Prevent direct history writes outside a completed transaction."""
     if not db.query(Parcel).filter(Parcel.id == parcel_id).first():
         raise HTTPException(status_code=404, detail="Parcel not found")
-    item = OwnershipHistory(parcel_id=parcel_id, **payload.model_dump())
-    db.add(item)
-    db.flush()
-    record_audit(db, action="OWNERSHIP_UPDATED", entity="Parcel", entity_id=str(parcel_id), user_id=current_user.id)
-    db.commit()
-    db.refresh(item)
-    return serialize_history(db, item)
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "Ownership history can only be appended by completing an "
+            "approved transaction."
+        ),
+    )
 
 
 @router.get("/{parcel_id}/transactions", response_model=list[TransactionOut])

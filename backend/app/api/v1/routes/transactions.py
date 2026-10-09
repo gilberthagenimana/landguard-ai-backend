@@ -7,14 +7,17 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.owner import Owner
+from app.models.ownership_history import OwnershipHistory
 from app.models.parcel import Parcel
 from app.models.transaction import Transaction, TRANSACTION_STATUSES
+from app.models.transaction_status_history import TransactionStatusHistory
 from app.models.user import User
 from app.models.verification_result import VerificationResultRecord
 from app.schemas.domain import TransactionCreate, TransactionOut
 from app.services.audit.service import record_audit
 from app.services.auth.service import require_roles
 from app.services.serializers import next_transaction_code, serialize_transaction
+from app.core.transaction_status import TransactionStatus
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
 write_roles = require_roles("ADMIN", "OFFICER")
@@ -28,9 +31,9 @@ class TransactionStatusUpdate(BaseModel):
 
 VALID_STATUS_TRANSITIONS = {
     "PENDING": ["UNDER_REVIEW", "FLAGGED", "REJECTED"],
-    "UNDER_REVIEW": ["FLAGGED", "APPROVED", "REJECTED", "PENDING"],
-    "FLAGGED": ["UNDER_REVIEW", "APPROVED", "REJECTED"],
-    "APPROVED": ["COMPLETED", "REJECTED"],
+    "UNDER_REVIEW": ["FLAGGED", "APPROVED", "REJECTED"],
+    "FLAGGED": ["UNDER_REVIEW", "REJECTED"],
+    "APPROVED": ["COMPLETED"],
     "REJECTED": [],
     "COMPLETED": [],
 }
@@ -64,25 +67,23 @@ def create_transaction(
         raise HTTPException(status_code=404, detail="Seller not found")
     if payload.buyer_owner_id and not db.query(Owner).filter(Owner.id == payload.buyer_owner_id).first():
         raise HTTPException(status_code=404, detail="Buyer not found")
-    if payload.seller_owner_id and payload.buyer_owner_id and payload.seller_owner_id == payload.buyer_owner_id:
-        raise HTTPException(status_code=400, detail="Seller and buyer cannot be the same person")
 
-    # Check for existing pending transaction on same parcel
-    existing_pending = (
-        db.query(Transaction)
-        .filter(
-            Transaction.parcel_id == payload.parcel_id,
-            Transaction.status.in_(["PENDING", "UNDER_REVIEW", "FLAGGED"]),
-        )
-        .first()
-    )
-    if existing_pending:
+    if (
+        payload.seller_owner_id
+        and payload.buyer_owner_id
+        and payload.seller_owner_id == payload.buyer_owner_id
+    ):
         raise HTTPException(
-            status_code=409,
-            detail=f"Parcel already has an active transaction ({existing_pending.transaction_code}) with status {existing_pending.status}",
+            status_code=400,
+            detail="Seller and buyer cannot be the same person",
         )
 
-    item = Transaction(transaction_code=next_transaction_code(db), created_by=current_user.id, **payload.model_dump())
+    item = Transaction(
+        transaction_code=next_transaction_code(db),
+        created_by=current_user.id,
+        status=TransactionStatus.PENDING.value,
+        **payload.model_dump(),
+    )
     db.add(item)
     db.flush()
 
@@ -92,7 +93,13 @@ def create_transaction(
         parcel.has_pending_transaction = True
         db.flush()
 
-    record_audit(db, action="TRANSACTION_CREATED", entity="Transaction", entity_id=item.transaction_code, user_id=current_user.id)
+    record_audit(
+        db,
+        action="TRANSACTION_CREATED",
+        entity="Transaction",
+        entity_id=item.transaction_code,
+        user_id=current_user.id,
+    )
     db.commit()
     db.refresh(item)
     return serialize_transaction(db, item)
@@ -154,9 +161,72 @@ def update_transaction_status(
             detail=f"Cannot transition from {current_status} to {payload.status}. Allowed: {', '.join(allowed_transitions)}"
         )
 
-    # Update status
+    parcel_query = db.query(Parcel).filter(Parcel.id == transaction.parcel_id)
+    if payload.status == "COMPLETED":
+        parcel_query = parcel_query.with_for_update()
+    parcel = parcel_query.first()
+    if not parcel:
+        raise HTTPException(status_code=404, detail="Parcel not found")
+
+    ownership_entry = None
+
+    if payload.status == "COMPLETED":
+        if current_status != "APPROVED":
+            raise HTTPException(
+                status_code=400,
+                detail="Only approved transactions can complete ownership transfers.",
+            )
+
+        if not transaction.seller_owner_id or not transaction.buyer_owner_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Transfer requires both a seller and a buyer.",
+            )
+
+        buyer = db.query(Owner).filter(
+            Owner.id == transaction.buyer_owner_id
+        ).first()
+        if not buyer:
+            raise HTTPException(status_code=409, detail="Transfer buyer was not found.")
+
+        latest_ownership = (
+            db.query(OwnershipHistory)
+            .filter(OwnershipHistory.parcel_id == transaction.parcel_id)
+            .order_by(
+                OwnershipHistory.transfer_date.desc(),
+                OwnershipHistory.id.desc(),
+            )
+            .first()
+        )
+
+        if latest_ownership is None or latest_ownership.new_owner_id is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot complete transfer: current recorded ownership is not established.",
+            )
+
+        if latest_ownership.new_owner_id != transaction.seller_owner_id:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot complete transfer: seller does not match the latest recorded owner.",
+            )
+
+        ownership_entry = OwnershipHistory(
+            parcel_id=transaction.parcel_id,
+            previous_owner_id=transaction.seller_owner_id,
+            new_owner_id=transaction.buyer_owner_id,
+            transfer_date=datetime.utcnow(),
+            reason_type="TRANSFER",
+            supporting_reference=transaction.transaction_code,
+        )
+
+    # Persist status and its history in the same transaction.
     transaction.status = payload.status
     db.flush()
+
+    if ownership_entry is not None:
+        db.add(ownership_entry)
+        db.flush()
 
     # Record status history
     status_history = TransactionStatusHistory(
@@ -169,7 +239,6 @@ def update_transaction_status(
     db.add(status_history)
 
     # Update parcel's has_pending_transaction flag
-    parcel = db.query(Parcel).filter(Parcel.id == transaction.parcel_id).first()
     if parcel:
         has_pending = (
             db.query(Transaction)

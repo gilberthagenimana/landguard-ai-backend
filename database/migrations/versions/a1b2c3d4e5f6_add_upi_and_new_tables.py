@@ -28,7 +28,7 @@ def upgrade() -> None:
     op.add_column('parcels', sa.Column('has_pending_transaction', sa.Boolean(), nullable=True, server_default='0'))
 
     # Update existing parcels with UPI values
-    op.execute("UPDATE parcels SET upi = 'UPI-' || id WHERE upi IS NULL")
+    op.execute("UPDATE parcels SET upi = 'DEMO-UPI-LEGACY-' || id WHERE upi IS NULL")
     op.execute("UPDATE parcels SET has_pending_transaction = false WHERE has_pending_transaction IS NULL")
 
     # Make UPI non-nullable after populating

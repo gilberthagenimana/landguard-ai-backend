@@ -81,7 +81,7 @@ def make_transaction(db, *, recent_change=False, with_conflict=False, seller_mat
                 seller_owner_id=owner.id,
                 buyer_owner_id=other_owner.id,
                 transaction_type="SALE",
-                status="ACTIVE",
+                status="PENDING",
                 transaction_date=datetime.utcnow(),
             )
         )

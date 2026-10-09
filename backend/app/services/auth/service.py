@@ -43,19 +43,22 @@ def record_failed_login(db: Session, user: User) -> None:
     """Record a failed login attempt."""
     user.failed_login_attempts = (user.failed_login_attempts or 0) + 1
     user.last_failed_login = datetime.utcnow()
-    db.commit()
+
 
 
 def reset_failed_logins(db: Session, user: User) -> None:
     """Reset failed login counter on successful login."""
     user.failed_login_attempts = 0
     user.last_failed_login = None
-    db.commit()
 
 
-def create_auth_token(user: User) -> str:
+def create_auth_token(user: User, role: str | None = None) -> str:
     expires_delta = timedelta(minutes=60)
-    role = next(iter({role.name for role in user.roles}), None)
+    if role is None:
+        # Preserve compatibility for internal callers and existing tests.
+        role = sorted(user_role.name for user_role in user.roles)[0] if user.roles else None
+    elif role not in {user_role.name for user_role in user.roles}:
+        raise ValueError("Selected role is not assigned to this account")
     return create_access_token(subject=str(user.id), expires_delta=expires_delta, claims={"role": role})
 
 

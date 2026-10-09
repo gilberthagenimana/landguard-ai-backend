@@ -1,13 +1,11 @@
-"""Public API endpoints for citizen UPI checking — no authentication required."""
+"""Public API endpoints for citizen UPI checking; no authentication required."""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.parcel import Parcel
 from app.models.transaction import Transaction
-from app.models.ownership_history import OwnershipHistory
 from app.schemas.domain import PublicParcelOut
-from app.services.auth.service import require_roles
 
 router = APIRouter(prefix="/public", tags=["Public"])
 
@@ -33,7 +31,17 @@ def public_parcel_check(upi: str, db: Session = Depends(get_db)):
     parcel = db.query(Parcel).filter(Parcel.upi == upi).first()
     if not parcel:
         raise HTTPException(status_code=404, detail="Parcel not found")
+    upi_normalized = (parcel.upi or "").strip().upper()
+    registration_reference = (parcel.registration_reference or "").strip().upper()
 
+    is_synthetic = (
+        upi_normalized.startswith("DEMO-UPI-")
+        or registration_reference.startswith("DEMO-PARCEL-")
+    )
+
+    record_classification = (
+        "DEMO_SYNTHETIC" if is_synthetic else "UNVERIFIED_LOCAL_RECORD"
+    )
     # Check for pending or conflicting transactions
     pending_tx = (
         db.query(Transaction)
@@ -72,4 +80,6 @@ def public_parcel_check(upi: str, db: Session = Depends(get_db)):
         status=parcel.status,
         has_pending_transaction=has_pending,
         warning_message=warning,
+        record_classification=record_classification,
+        official_verification="NOT_INDEPENDENTLY_VERIFIED",
     )
