@@ -118,10 +118,20 @@ class TransactionOut(BaseModel):
     latest_risk_score: Optional[int] = None
 
 
+class CaseCreate(BaseModel):
+    transaction_id: int
+    priority: Optional[str] = "MEDIUM"
+    assigned_to: Optional[int] = None
+    notes: Optional[str] = None
+
+
 class CaseUpdate(BaseModel):
     status: Optional[Literal["OPEN", "UNDER_REVIEW", "NEEDS_INFORMATION", "RESOLVED", "CLOSED"]] = None
     review_notes: Optional[str] = None
+    resolution_notes: Optional[str] = None
     assigned_to: Optional[int] = None
+    priority: Optional[Literal["LOW", "MEDIUM", "HIGH", "CRITICAL"]] = None
+    due_date: Optional[datetime] = None
 
 
 class CaseOut(BaseModel):
@@ -135,7 +145,10 @@ class CaseOut(BaseModel):
     assigned_to: Optional[int] = None
     assigned_name: Optional[str] = None
     status: str
+    priority: str = "MEDIUM"
     review_notes: Optional[str] = None
+    resolution_notes: Optional[str] = None
+    due_date: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
     risk_level: Optional[str] = None
