@@ -11,7 +11,7 @@ Backend API (FastAPI + Python)
     ↓
 Business Services / Domain Logic
     ↓
-Database (PostgreSQL / SQLite)
+Database (PostgreSQL / Neon)
     ↓
 AI/ML Module (scikit-learn)
 ```
@@ -34,19 +34,19 @@ AI/ML Module (scikit-learn)
 landguard-ai-backend/
 ├── backend/
 │   ├── app/
-│   │   ├── api/v1/routes/    # REST endpoints
-│   │   ├── core/             # Config, security, roles
+│   │   ├── api/v1/routes/    # REST endpoints (12 routers)
+│   │   ├── core/             # Config, security, roles, transaction_status
 │   │   ├── db/               # Database session, seed
-│   │   ├── models/           # SQLAlchemy models
+│   │   ├── models/           # SQLAlchemy models (10 tables)
 │   │   ├── schemas/          # Pydantic schemas
-│   │   ├── services/         # Business logic
+│   │   ├── services/         # Business logic (auth, verification, risk, audit)
 │   │   └── main.py           # FastAPI entrypoint
 │   ├── requirements.txt
 │   └── alembic.ini
 ├── ml/                        # ML pipeline
 ├── database/                  # Migrations & seed
-├── tests/                     # Test suite (80 tests)
-└── README.md
+├── tests/                     # Test suite (91 tests)
+└── docs/                      # Documentation
 ```
 
 ## 4. User Roles
@@ -62,14 +62,24 @@ landguard-ai-backend/
 1. User logs in with JWT authentication
 2. System validates role and permissions
 3. Officer creates transaction with UPI
-4. Verification engine runs deterministic checks
+4. Verification engine runs 10 deterministic checks
 5. AI model calculates risk score with explanations
 6. System flags conflicts and creates cases
 7. Officer reviews and updates case status
 8. Auditor reviews all activities
 9. All actions are audit-logged
 
-## 6. AI/ML Workflow
+## 6. Transaction Status Workflow
+
+```
+PENDING → UNDER_REVIEW → APPROVED → COMPLETED
+   ↓           ↓            ↓
+FLAGGED    REJECTED     REJECTED
+   ↓
+UNDER_REVIEW
+```
+
+## 7. AI/ML Workflow
 
 1. Load synthetic dataset (clearly labeled as DEMO/SYNTHETIC)
 2. Engineer 9 transaction-level features
@@ -79,10 +89,10 @@ landguard-ai-backend/
 6. Save model with joblib
 7. Backend extracts features and returns risk score + explanations
 
-## 7. Security Architecture
+## 8. Security Architecture
 
 - JWT tokens with 60-minute expiry
-- Account lockout after 5 failed attempts
+- Account lockout after 5 failed attempts (30-min lockout)
 - Security headers (X-Frame-Options, HSTS, CSP)
 - Rate limiting on auth endpoints
 - RBAC enforced at API route layer
@@ -90,3 +100,77 @@ landguard-ai-backend/
 - SQL injection protection via ORM
 - Audit logging for all critical actions
 - Public endpoint exposes only safe information
+
+## 9. Database Schema
+
+### Core Tables
+- `users` — System users with lockout fields
+- `roles` — ADMIN, OFFICER, AUDITOR
+- `user_roles` — User-to-role assignments
+- `owners` — Landowners
+- `parcels` — Land parcels with UPI
+- `ownership_history` — Title transfer history
+- `transactions` — Land transactions with status
+- `verification_results` — Rule check results
+- `risk_predictions` — AI risk scores
+- `case_reviews` — Investigation cases
+- `case_status_history` — Case status changes
+- `transaction_status_history` — Transaction status changes
+- `audit_logs` — Immutable activity log
+- `subdivisions` — Parcel subdivision records
+- `system_config` — System configuration
+
+## 10. API Endpoints
+
+### Authentication
+- `POST /api/auth/login` — Login
+- `POST /api/auth/logout` — Logout
+- `GET /api/auth/me` — Current user
+- `PUT /api/auth/me` — Update profile
+
+### Public (No Auth)
+- `GET /api/public/parcels/{upi}` — Public UPI check
+
+### Parcels
+- `GET /api/parcels` — List/search
+- `POST /api/parcels` — Create
+- `GET /api/parcels/{id}` — Get by ID
+- `GET /api/parcels/upi/{upi}` — Get by UPI
+- `PUT /api/parcels/{id}` — Update
+- `GET /api/parcels/{id}/ownership-history` — History
+- `GET /api/parcels/upi/{upi}/ownership-history` — History by UPI
+- `GET /api/parcels/{id}/transactions` — Transactions
+
+### Owners
+- `GET /api/owners` — List/search
+- `POST /api/owners` — Create
+- `GET /api/owners/{id}` — Get
+- `PUT /api/owners/{id}` — Update
+
+### Transactions
+- `GET /api/transactions` — List
+- `POST /api/transactions` — Create
+- `GET /api/transactions/{id}` — Get
+- `PUT /api/transactions/{id}/status` — Update status
+- `GET /api/transactions/{id}/status-history` — Status history
+- `GET /api/transactions/{id}/verification` — Verification results
+
+### Verification & Risk
+- `POST /api/verification/transactions/{id}` — Run verification
+- `POST /api/risk-analysis/transactions/{id}` — AI risk analysis
+
+### Cases
+- `GET /api/cases` — List
+- `POST /api/cases` — Create
+- `GET /api/cases/{id}` — Get
+- `PUT /api/cases/{id}` — Update
+- `GET /api/cases/{id}/status-history` — Status history
+
+### Audit & Reports
+- `GET /api/audit-logs` — View logs
+- `GET /api/audit-logs/export` — Export logs
+- `GET /api/reports/verification` — Verification report
+- `GET /api/reports/risk` — Risk report
+- `GET /api/reports/cases` — Cases report
+- `GET /api/reports/audit` — Audit report
+- `GET /api/reports/parcels/{id}/history` — Parcel history report
