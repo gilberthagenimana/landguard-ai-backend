@@ -28,11 +28,11 @@ class Transaction(Base):
     transaction_date: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     declared_value: Mapped[Decimal | None] = mapped_column(Numeric(precision=18, scale=2), nullable=True)
     status: Mapped[str] = mapped_column(
-    String(50),
-    default=TransactionStatus.PENDING.value,
-    nullable=False,
-    index=True,
-)
+        String(50),
+        default=TransactionStatus.PENDING.value,
+        nullable=False,
+        index=True,
+    )
     created_by: Mapped[int | None] = mapped_column(ForeignKey("users.id"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
@@ -43,3 +43,4 @@ class Transaction(Base):
     )
 
     parcel: Mapped["Parcel"] = relationship(back_populates="transactions")
+    evidence: Mapped[list["Evidence"]] = relationship(back_populates="transaction")

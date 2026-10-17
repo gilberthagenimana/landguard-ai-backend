@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     synthetic_data_path: str = (
         "ml/data/synthetic_land_transactions.csv"
     )
+    evidence_storage_path: str = "storage/evidence"
+    max_evidence_file_size: int = 10 * 1024 * 1024  # 10 MB
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
