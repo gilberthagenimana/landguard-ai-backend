@@ -1,6 +1,7 @@
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal, Optional
+import math
+from typing import Any, Literal, Optional
 from app.core.transaction_status import TransactionStatus
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -39,6 +40,75 @@ class ParcelOut(ParcelCreate):
     updated_at: datetime
     current_owner_name: Optional[str] = None
     current_owner_id: Optional[int] = None
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    boundary_geometry: Optional[dict[str, Any]] = None
+    location_data_source: Optional[str] = None
+    location_verification_status: str = "NOT_SUBMITTED"
+    location_verification_metadata: Optional[dict[str, Any]] = None
+
+
+def _valid_coordinate_pair(value: Any) -> bool:
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) >= 2
+        and all(isinstance(item, (int, float)) and math.isfinite(item) for item in value[:2])
+        and -180 <= value[0] <= 180
+        and -90 <= value[1] <= 90
+    )
+
+
+def _validate_geojson_coordinates(value: Any) -> bool:
+    if _valid_coordinate_pair(value):
+        return True
+    return isinstance(value, list) and bool(value) and all(_validate_geojson_coordinates(item) for item in value)
+
+
+def validate_geojson(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or value.get("type") not in {
+        "Point", "MultiPoint", "LineString", "MultiLineString", "Polygon", "MultiPolygon",
+    }:
+        raise ValueError("boundary_geometry must be a valid GeoJSON geometry object")
+    coordinates = value.get("coordinates")
+    if not _validate_geojson_coordinates(coordinates):
+        raise ValueError("boundary_geometry contains invalid coordinate values")
+    return value
+
+
+class ParcelLocationSubmissionCreate(BaseModel):
+    latitude: Optional[float] = Field(default=None, ge=-90, le=90)
+    longitude: Optional[float] = Field(default=None, ge=-180, le=180)
+    boundary_geometry: Optional[dict[str, Any]] = None
+    source: str = Field(min_length=3, max_length=255)
+    metadata: Optional[dict[str, Any]] = None
+
+    def model_post_init(self, __context: Any) -> None:
+        if (self.latitude is None) != (self.longitude is None) or (self.latitude is None and self.boundary_geometry is None):
+            raise ValueError("Provide both coordinates or a boundary geometry")
+        if self.boundary_geometry is not None:
+            self.boundary_geometry = validate_geojson(self.boundary_geometry)
+
+
+class ParcelLocationSubmissionOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: int
+    parcel_id: int
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    boundary_geometry: Optional[dict[str, Any]] = None
+    source: str
+    metadata: Optional[dict[str, Any]] = Field(default=None, validation_alias="submission_metadata", serialization_alias="metadata")
+    status: str
+    submitted_by: int
+    submitted_at: datetime
+    reviewed_by: Optional[int] = None
+    reviewed_at: Optional[datetime] = None
+    review_notes: Optional[str] = None
+
+
+class ParcelLocationReview(BaseModel):
+    decision: Literal["VERIFIED", "REJECTED"]
+    review_notes: Optional[str] = Field(default=None, max_length=1000)
 
 
 class OwnerCreate(BaseModel):

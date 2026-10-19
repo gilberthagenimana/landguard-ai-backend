@@ -1,6 +1,9 @@
 from pathlib import Path
+import sys
 
 import pytest
+
+sys.path.insert(0, str(Path(__file__).parents[2]))
 
 from ml.predict import predict_risk
 from ml.scripts.generate_dataset import generate_dataset

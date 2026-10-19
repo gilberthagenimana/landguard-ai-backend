@@ -3,6 +3,7 @@ from app.models.case_review import CaseReview
 from app.models.owner import Owner
 from app.models.ownership_history import OwnershipHistory
 from app.models.parcel import Parcel
+from app.models.parcel_location_submission import ParcelLocationSubmission
 from app.models.risk_prediction import RiskPrediction
 from app.models.role import Role
 from app.models.transaction import Transaction
@@ -15,6 +16,7 @@ __all__ = [
     "Owner",
     "OwnershipHistory",
     "Parcel",
+    "ParcelLocationSubmission",
     "RiskPrediction",
     "Role",
     "Transaction",

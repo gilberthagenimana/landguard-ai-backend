@@ -16,6 +16,7 @@ import app.models.case_review  # noqa: F401
 import app.models.owner  # noqa: F401
 import app.models.ownership_history  # noqa: F401
 import app.models.parcel  # noqa: F401
+import app.models.parcel_location_submission  # noqa: F401
 import app.models.risk_prediction  # noqa: F401
 import app.models.role  # noqa: F401
 import app.models.transaction  # noqa: F401

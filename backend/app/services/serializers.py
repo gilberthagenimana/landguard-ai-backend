@@ -65,6 +65,12 @@ def serialize_parcel(db: Session, parcel: Parcel) -> ParcelOut:
         updated_at=parcel.updated_at,
         current_owner_name=owner.full_name if owner else None,
         current_owner_id=owner.id if owner else None,
+        latitude=parcel.latitude,
+        longitude=parcel.longitude,
+        boundary_geometry=parcel.boundary_geometry,
+        location_data_source=parcel.location_data_source,
+        location_verification_status=parcel.location_verification_status,
+        location_verification_metadata=parcel.location_verification_metadata,
     )
 
 
