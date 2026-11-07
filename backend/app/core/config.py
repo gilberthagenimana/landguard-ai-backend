@@ -1,12 +1,15 @@
+
 from functools import lru_cache
 from pathlib import Path
 from typing import List
 
-from pydantic import Field
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-BASE_DIR = Path(__file__).resolve().parents[3]
+# Backend directory:
+# D:\LandGuard AI\landguard-ai-backend\backend
+BASE_DIR = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -16,6 +19,15 @@ class Settings(BaseSettings):
     app_port: int = 8000
 
     database_url: str
+
+    @field_validator("database_url", mode="before")
+    @classmethod
+    def use_psycopg_driver(cls, value: str) -> str:
+        if value.startswith("postgresql://"):
+            return value.replace("postgresql://", "postgresql+psycopg://", 1)
+        if value.startswith("postgresql+psycopg2://"):
+            return value.replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
+        return value
 
     jwt_secret_key: str = "dev-only-secret-key-change-in-production"
     jwt_algorithm: str = "HS256"
@@ -33,11 +45,11 @@ class Settings(BaseSettings):
         "ml/data/synthetic_land_transactions.csv"
     )
     evidence_storage_path: str = "storage/evidence"
-    max_evidence_file_size: int = 10 * 1024 * 1024  # 10 MB
+    max_evidence_file_size: int = 10 * 1024 * 1024
 
     model_config = SettingsConfigDict(
         env_file=BASE_DIR / ".env",
-        env_file_encoding="utf-8",
+        env_file_encoding="utf-8-sig",
         extra="ignore",
         protected_namespaces=("settings_",),
     )

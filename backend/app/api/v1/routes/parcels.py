@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from datetime import datetime
 
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
+from uuid import uuid4
 
 from app.db.session import get_db
 from app.models.parcel import Parcel
@@ -10,7 +12,7 @@ from app.models.user import User
 from app.schemas.domain import (
     OwnershipHistoryCreate, OwnershipHistoryOut, ParcelCreate, ParcelLocationReview,
     ParcelLocationSubmissionCreate, ParcelLocationSubmissionOut, ParcelOut, ParcelUpdate,
-    TransactionOut,
+    ParcelPage, TransactionOut,
 )
 from app.services.audit.service import record_audit
 from app.services.auth.service import require_roles
@@ -18,23 +20,90 @@ from app.services.serializers import serialize_history, serialize_parcel, serial
 from app.models.ownership_history import OwnershipHistory
 from app.models.transaction import Transaction
 from app.models.parcel_location_submission import ParcelLocationSubmission
+from app.models.owner import Owner
 
 router = APIRouter(prefix="/parcels", tags=["Parcels"])
 write_roles = require_roles("ADMIN", "OFFICER")
 read_roles = require_roles("ADMIN", "OFFICER", "AUDITOR")
 
 
-@router.get("", response_model=list[ParcelOut])
+@router.get("", response_model=list[ParcelOut] | ParcelPage)
 def list_parcels(
     q: str | None = Query(default=None),
+    parcel_code: str | None = Query(default=None),
+    upi: str | None = Query(default=None),
+    owner_name: str | None = Query(default=None),
+    province: str | None = Query(default=None),
+    district: str | None = Query(default=None),
+    sector: str | None = Query(default=None),
+    status_filter: str | None = Query(default=None, alias="status"),
+    page: int | None = Query(default=None, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    sort_by: str = Query(default="parcel_code", pattern="^(parcel_code|created_at|status|area_ha)$"),
+    sort_order: str = Query(default="asc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
     _current_user: User = Depends(read_roles),
 ):
-    query = db.query(Parcel)
+    latest_history = (
+        db.query(
+            OwnershipHistory.parcel_id,
+            func.max(OwnershipHistory.id).label("latest_history_id"),
+        )
+        .group_by(OwnershipHistory.parcel_id)
+        .subquery()
+    )
+    query = (
+        db.query(Parcel)
+        .outerjoin(latest_history, latest_history.c.parcel_id == Parcel.id)
+        .outerjoin(
+            OwnershipHistory,
+            OwnershipHistory.id == latest_history.c.latest_history_id,
+        )
+        .outerjoin(Owner, Owner.id == OwnershipHistory.new_owner_id)
+    )
     if q:
         like = f"%{q}%"
-        query = query.filter((Parcel.parcel_code.ilike(like)) | (Parcel.location.ilike(like)) | (Parcel.district.ilike(like)))
-    return [serialize_parcel(db, item) for item in query.order_by(Parcel.parcel_code).all()]
+        query = query.filter(
+            or_(
+                Parcel.parcel_code.ilike(like),
+                Parcel.upi.ilike(like),
+                Parcel.location.ilike(like),
+                Owner.full_name.ilike(like),
+            )
+        )
+    for column, value in (
+        (Parcel.parcel_code, parcel_code),
+        (Parcel.upi, upi),
+        (Parcel.province, province),
+        (Parcel.district, district),
+        (Parcel.sector, sector),
+        (Parcel.status, status_filter),
+    ):
+        if value:
+            query = query.filter(column.ilike(f"%{value}%"))
+    if owner_name:
+        query = query.filter(Owner.full_name.ilike(f"%{owner_name}%"))
+
+    sort_column = {
+        "parcel_code": Parcel.parcel_code,
+        "created_at": Parcel.created_at,
+        "status": Parcel.status,
+        "area_ha": Parcel.area_ha,
+    }[sort_by]
+    query = query.order_by(sort_column.desc() if sort_order == "desc" else sort_column.asc())
+    if page is None:
+        return [serialize_parcel(db, item) for item in query.all()]
+
+    total = query.order_by(None).with_entities(func.count(func.distinct(Parcel.id))).scalar() or 0
+    rows = query.offset((page - 1) * page_size).limit(page_size).all()
+    pages = max(1, (total + page_size - 1) // page_size)
+    return ParcelPage(
+        items=[serialize_parcel(db, item) for item in rows],
+        total=total,
+        page=page,
+        page_size=page_size,
+        pages=pages,
+    )
 
 
 @router.post("", response_model=ParcelOut, status_code=status.HTTP_201_CREATED)
@@ -45,11 +114,45 @@ def create_parcel(
 ):
     if db.query(Parcel).filter(Parcel.parcel_code == payload.parcel_code).first():
         raise HTTPException(status_code=400, detail="Parcel code already exists")
-    if db.query(Parcel).filter(Parcel.upi == payload.upi).first():
+    if payload.upi and db.query(Parcel).filter(Parcel.upi == payload.upi).first():
         raise HTTPException(status_code=400, detail="UPI already exists")
-    parcel = Parcel(**payload.model_dump())
+    owner_payload = payload.owner
+    owner = db.query(Owner).filter(
+        Owner.identification_number == owner_payload.identification_number
+    ).first()
+    if owner is None and owner_payload.registration_number:
+        owner = db.query(Owner).filter(
+            Owner.registration_number == owner_payload.registration_number
+        ).first()
+    if owner is not None:
+        if owner.owner_type != owner_payload.owner_type:
+            raise HTTPException(status_code=409, detail="Owner identifier belongs to a different owner type")
+    else:
+        owner = Owner(
+            owner_code=f"OWN-{uuid4().hex[:16].upper()}",
+            full_name=owner_payload.full_name.strip(),
+            owner_type=owner_payload.owner_type,
+            identification_number=owner_payload.identification_number.strip(),
+            phone=owner_payload.phone.strip() if owner_payload.phone else None,
+            email=owner_payload.email.strip().lower() if owner_payload.email else None,
+            organization_name=owner_payload.organization_name.strip() if owner_payload.organization_name else None,
+            registration_number=owner_payload.registration_number.strip() if owner_payload.registration_number else None,
+            status="ACTIVE",
+        )
+        db.add(owner)
+        db.flush()
+
+    parcel = Parcel(**payload.model_dump(exclude={"owner"}))
     db.add(parcel)
     db.flush()
+    db.add(OwnershipHistory(
+        parcel_id=parcel.id,
+        previous_owner_id=None,
+        new_owner_id=owner.id,
+        transfer_date=datetime.utcnow(),
+        reason_type="FIRST_REGISTRATION",
+        supporting_reference=parcel.registration_reference,
+    ))
     record_audit(db, action="PARCEL_CREATED", entity="Parcel", entity_id=parcel.parcel_code, user_id=current_user.id)
     try:
         db.commit()

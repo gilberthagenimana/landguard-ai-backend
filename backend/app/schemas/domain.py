@@ -3,7 +3,30 @@ from decimal import Decimal
 import math
 from typing import Any, Literal, Optional
 from app.core.transaction_status import TransactionStatus
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+
+class ParcelOwnerCreate(BaseModel):
+    owner_type: Literal["INDIVIDUAL", "ORGANIZATION"] = "INDIVIDUAL"
+    full_name: str = Field(min_length=2, max_length=200)
+    identification_number: str = Field(min_length=2, max_length=100)
+    phone: Optional[str] = Field(default=None, max_length=50)
+    email: Optional[str] = Field(default=None, max_length=255)
+    organization_name: Optional[str] = Field(default=None, max_length=255)
+    registration_number: Optional[str] = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def validate_owner_details(self) -> "ParcelOwnerCreate":
+        if self.owner_type == "ORGANIZATION":
+            if not self.organization_name or not self.registration_number:
+                raise ValueError(
+                    "Organization name and registration number are required for organization owners"
+                )
+        elif self.organization_name or self.registration_number:
+            raise ValueError(
+                "Organization fields are only valid for organization owners"
+            )
+        return self
 
 
 class ParcelCreate(BaseModel):
@@ -18,6 +41,7 @@ class ParcelCreate(BaseModel):
     area_ha: float = Field(gt=0)
     status: str = "ACTIVE"
     registration_reference: Optional[str] = None
+    owner: ParcelOwnerCreate
 
 
 class ParcelUpdate(BaseModel):
@@ -34,18 +58,36 @@ class ParcelUpdate(BaseModel):
 
 class ParcelOut(ParcelCreate):
     model_config = ConfigDict(from_attributes=True)
+    owner: Optional["ParcelOwnerOut"] = None
     id: int
     has_pending_transaction: bool = False
     created_at: datetime
     updated_at: datetime
     current_owner_name: Optional[str] = None
     current_owner_id: Optional[int] = None
+    current_owner_type: Optional[Literal["INDIVIDUAL", "ORGANIZATION"]] = None
+    current_organization_name: Optional[str] = None
     latitude: Optional[float] = Field(default=None, ge=-90, le=90)
     longitude: Optional[float] = Field(default=None, ge=-180, le=180)
     boundary_geometry: Optional[dict[str, Any]] = None
     location_data_source: Optional[str] = None
     location_verification_status: str = "NOT_SUBMITTED"
     location_verification_metadata: Optional[dict[str, Any]] = None
+
+
+class ParcelOwnerOut(BaseModel):
+    id: int
+    full_name: str
+    owner_type: Literal["INDIVIDUAL", "ORGANIZATION"]
+    organization_name: Optional[str] = None
+
+
+class ParcelPage(BaseModel):
+    items: list[ParcelOut]
+    total: int
+    page: int
+    page_size: int
+    pages: int
 
 
 def _valid_coordinate_pair(value: Any) -> bool:
@@ -114,7 +156,10 @@ class ParcelLocationReview(BaseModel):
 class OwnerCreate(BaseModel):
     owner_code: str
     full_name: str
+    owner_type: Literal["INDIVIDUAL", "ORGANIZATION"] = "INDIVIDUAL"
     identification_number: Optional[str] = None
+    organization_name: Optional[str] = None
+    registration_number: Optional[str] = None
     phone: Optional[str] = None
     email: Optional[str] = None
     status: str = "ACTIVE"

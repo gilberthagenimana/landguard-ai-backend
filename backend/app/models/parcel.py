@@ -1,3 +1,4 @@
+
 from datetime import datetime
 
 from sqlalchemy import DateTime, Float, JSON, String
@@ -10,29 +11,96 @@ class Parcel(Base):
     __tablename__ = "parcels"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    upi: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
-    parcel_code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False, index=True)
+
+    # Official UPI may be unavailable for existing parcels.
+    # Never generate fake UPI numbers.
+    upi: Mapped[str | None] = mapped_column(
+        String(100),
+        unique=True,
+        nullable=True,
+    )
+
+    parcel_code: Mapped[str] = mapped_column(
+        String(100),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+
     location: Mapped[str] = mapped_column(String(255), nullable=False)
     province: Mapped[str] = mapped_column(String(120), nullable=False, default="Kigali")
     district: Mapped[str] = mapped_column(String(120), nullable=False)
     sector: Mapped[str] = mapped_column(String(120), nullable=False)
     cell: Mapped[str] = mapped_column(String(120), nullable=False)
     village: Mapped[str] = mapped_column(String(120), nullable=False)
+
     area_ha: Mapped[float] = mapped_column(Float, nullable=False)
-    status: Mapped[str] = mapped_column(String(50), default="ACTIVE", index=True)
-    registration_reference: Mapped[str | None] = mapped_column(String(150), nullable=True)
-    has_pending_transaction: Mapped[bool] = mapped_column(default=False, nullable=False)
+
+    status: Mapped[str] = mapped_column(
+        String(50),
+        default="ACTIVE",
+        index=True,
+    )
+
+    registration_reference: Mapped[str | None] = mapped_column(
+        String(150),
+        nullable=True,
+    )
+
+    has_pending_transaction: Mapped[bool] = mapped_column(
+        default=False,
+        nullable=False,
+    )
+
     latitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
-    boundary_geometry: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    location_data_source: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    location_verification_status: Mapped[str] = mapped_column(String(40), default="NOT_SUBMITTED", nullable=False, index=True)
-    location_verification_metadata: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    location_submitted_by: Mapped[int | None] = mapped_column(nullable=True)
-    location_submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    location_verified_by: Mapped[int | None] = mapped_column(nullable=True)
-    location_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+
+    boundary_geometry: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    location_data_source: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    location_verification_status: Mapped[str] = mapped_column(
+        String(40),
+        default="NOT_SUBMITTED",
+        nullable=False,
+        index=True,
+    )
+
+    location_verification_metadata: Mapped[dict | None] = mapped_column(
+        JSON,
+        nullable=True,
+    )
+
+    location_submitted_by: Mapped[int | None] = mapped_column(
+        nullable=True,
+    )
+
+    location_submitted_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+    )
+
+    location_verified_by: Mapped[int | None] = mapped_column(
+        nullable=True,
+    )
+
+    location_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime,
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
     updated_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.utcnow,
@@ -40,6 +108,15 @@ class Parcel(Base):
         nullable=False,
     )
 
-    ownership_history: Mapped[list["OwnershipHistory"]] = relationship(back_populates="parcel")
-    transactions: Mapped[list["Transaction"]] = relationship(back_populates="parcel")
-    location_submissions: Mapped[list["ParcelLocationSubmission"]] = relationship(back_populates="parcel")
+    # Relationships
+    ownership_history: Mapped[list["OwnershipHistory"]] = relationship(
+        back_populates="parcel"
+    )
+
+    transactions: Mapped[list["Transaction"]] = relationship(
+        back_populates="parcel"
+    )
+
+    location_submissions: Mapped[list["ParcelLocationSubmission"]] = relationship(
+        back_populates="parcel"
+    )

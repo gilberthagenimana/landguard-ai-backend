@@ -53,7 +53,7 @@ def client():
     return TestClient(app)
 
 
-def _setup_data():
+def _setup_data(include_initial_ownership=True):
     db = TestingSessionLocal()
     roles = {
         name: Role(name=name, description=name.title())
@@ -82,6 +82,15 @@ def _setup_data():
         district="Gasabo", sector="Kacyiru", cell="Cell", village="Village", area_ha=1.0, status="ACTIVE",
     )
     db.add_all([seller, buyer, parcel])
+    db.flush()
+    if include_initial_ownership:
+        db.add(OwnershipHistory(
+            parcel_id=parcel.id,
+            new_owner_id=seller.id,
+            transfer_date=datetime.utcnow() - timedelta(days=365),
+            reason_type="FIRST_REGISTRATION",
+            supporting_reference="TEST-INITIAL-REGISTRATION",
+        ))
     db.commit()
     ids = {
         "token": create_auth_token(officer, role="OFFICER"),
@@ -227,7 +236,6 @@ def _approve_transaction(client, ids, transaction_id):
 
 def test_completed_transfer_appends_ownership_history(client):
     ids = _setup_data()
-    _record_initial_owner(ids)
     transaction_id = _create_transaction_for_completion(client, ids)
     _approve_transaction(client, ids, transaction_id)
 
@@ -264,8 +272,8 @@ def test_completed_transfer_appends_ownership_history(client):
 
 def test_completed_transfer_rejects_seller_not_latest_owner(client):
     ids = _setup_data()
-    _record_initial_owner(ids, owner_id=ids["buyer_id"])
     transaction_id = _create_transaction_for_completion(client, ids)
+    _record_initial_owner(ids, owner_id=ids["buyer_id"])
     _approve_transaction(client, ids, transaction_id)
 
     response = _set_transaction_status(
@@ -284,29 +292,31 @@ def test_completed_transfer_rejects_seller_not_latest_owner(client):
             db.query(OwnershipHistory)
             .filter_by(parcel_id=ids["parcel_id"])
             .count()
-            == 1
+            == 2
         )
     finally:
         db.close()
 
 
 def test_completed_transfer_requires_established_ownership(client):
-    ids = _setup_data()
-    transaction_id = _create_transaction_for_completion(client, ids)
-    _approve_transaction(client, ids, transaction_id)
-
-    response = _set_transaction_status(
-        client, ids, transaction_id, "COMPLETED"
+    ids = _setup_data(include_initial_ownership=False)
+    response = client.post(
+        "/api/transactions",
+        headers={"Authorization": f"Bearer {ids['token']}"},
+        json={
+            "parcel_id": ids["parcel_id"],
+            "seller_owner_id": ids["seller_id"],
+            "buyer_owner_id": ids["buyer_id"],
+            "transaction_type": "SALE",
+            "transaction_date": datetime.utcnow().isoformat(),
+            "declared_value": "15000000",
+        },
     )
     assert response.status_code == 409
-    assert "ownership is not established" in response.json()["detail"].lower()
+    assert "no valid current registered owner" in response.json()["detail"].lower()
 
     db = TestingSessionLocal()
     try:
-        from app.models.transaction import Transaction
-
-        transaction = db.query(Transaction).filter_by(id=transaction_id).one()
-        assert transaction.status == "APPROVED"
         assert (
             db.query(OwnershipHistory)
             .filter_by(parcel_id=ids["parcel_id"])
@@ -319,7 +329,6 @@ def test_completed_transfer_requires_established_ownership(client):
 
 def test_pending_transaction_cannot_jump_to_completed(client):
     ids = _setup_data()
-    _record_initial_owner(ids)
     transaction_id = _create_transaction_for_completion(client, ids)
 
     response = _set_transaction_status(
