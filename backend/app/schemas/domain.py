@@ -301,7 +301,11 @@ class PublicParcelOut(BaseModel):
     location: str
     district: str
     status: str
+    availability: str = "AVAILABLE"
     has_pending_transaction: bool = False
+    transaction_id: Optional[int] = None
+    transaction_code: Optional[str] = None
+    transaction_status: Optional[str] = None
     warning_message: Optional[str] = None
 
     record_classification: str = "UNVERIFIED_LOCAL_RECORD"
@@ -313,3 +317,30 @@ class PublicParcelOut(BaseModel):
         "record or legal confirmation of ownership. Verify with the "
         "authorized land authority before making a transaction."
     )
+
+
+class TransactionReviewDecision(BaseModel):
+    action: str  # "START_REVIEW", "VERIFY", "REJECT", "FLAG", "REQUEST_EVIDENCE", "RESUME_REVIEW", "RESOLVE_FLAG"
+    explanation: str
+    evidence_notes: Optional[str] = None
+    investigation_findings: Optional[str] = None
+
+
+class OwnershipTransferRequest(BaseModel):
+    supporting_reference: str
+    notes: Optional[str] = None
+
+
+class TransactionReviewDetails(BaseModel):
+    transaction: TransactionOut
+    parcel: Optional[dict] = None
+    current_owner: Optional[dict] = None
+    seller: Optional[dict] = None
+    buyer: Optional[dict] = None
+    evidence: list[dict] = []
+    ownership_history: list[dict] = []
+    ai_risk: Optional[dict] = None
+    verification_results: list[dict] = []
+    review_decisions: list[dict] = []
+    can_review: bool = True
+    cannot_review_reason: Optional[str] = None

@@ -28,9 +28,13 @@ RISK_FEATURES = [
 ]
 
 ACTIVE_TRANSACTION_STATUSES = (
+    TransactionStatus.PENDING_REVIEW.value,
     TransactionStatus.PENDING.value,
     TransactionStatus.UNDER_REVIEW.value,
     TransactionStatus.FLAGGED.value,
+    TransactionStatus.AWAITING_EVIDENCE.value,
+    TransactionStatus.VERIFIED.value,
+    TransactionStatus.APPROVED.value,
 )
 
 FEATURE_DESCRIPTIONS = {
@@ -248,6 +252,10 @@ def analyze_transaction(
         reasons.append(
             "No elevated rule-based risk indicators were observed in the available records."
         )
+
+    advisory_note = "AI provides recommendations, not legally authoritative ownership decisions."
+    if advisory_note not in reasons:
+        reasons.append(advisory_note)
 
     record = RiskPrediction(
         transaction_id=transaction.id,

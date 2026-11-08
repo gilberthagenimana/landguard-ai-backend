@@ -114,7 +114,7 @@ def test_create_transaction_success(client):
     assert response.status_code == 201
     data = response.json()
     assert data["transaction_code"].startswith("TX-")
-    assert data["status"] == "PENDING"
+    assert data["status"] == "PENDING_REVIEW"
 
 
 def test_create_transaction_nonexistent_parcel(client):
@@ -177,7 +177,8 @@ def test_stored_verification_empty(client):
     tx_id = create_resp.json()["id"]
     response = client.get(f"/api/transactions/{tx_id}/verification", headers={"Authorization": f"Bearer {ids['token']}"})
     assert response.status_code == 200
-    assert response.json() == []
+    # Automated verification runs on transaction creation and persists results.
+    assert len(response.json()) > 0
 
 
 def _create_transaction_for_completion(client, ids):
@@ -197,10 +198,10 @@ def _create_transaction_for_completion(client, ids):
     return response.json()["id"]
 
 
-def _set_transaction_status(client, ids, transaction_id, new_status):
+def _set_transaction_status(client, ids, transaction_id, new_status, token_key="token"):
     return client.put(
         f"/api/transactions/{transaction_id}/status",
-        headers={"Authorization": f"Bearer {ids['token']}"},
+        headers={"Authorization": f"Bearer {ids[token_key]}"},
         json={"status": new_status, "reason": "Regression test"},
     )
 
@@ -223,14 +224,10 @@ def _record_initial_owner(ids, owner_id=None):
 
 
 def _approve_transaction(client, ids, transaction_id):
-    response = _set_transaction_status(
-        client, ids, transaction_id, "UNDER_REVIEW"
-    )
+    response = _set_transaction_status(client, ids, transaction_id, "UNDER_REVIEW")
     assert response.status_code == 200, response.text
 
-    response = _set_transaction_status(
-        client, ids, transaction_id, "APPROVED"
-    )
+    response = _set_transaction_status(client, ids, transaction_id, "APPROVED", token_key="admin_token")
     assert response.status_code == 200, response.text
 
 
@@ -240,7 +237,7 @@ def test_completed_transfer_appends_ownership_history(client):
     _approve_transaction(client, ids, transaction_id)
 
     response = _set_transaction_status(
-        client, ids, transaction_id, "COMPLETED"
+        client, ids, transaction_id, "COMPLETED", token_key="admin_token"
     )
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "COMPLETED"
@@ -259,7 +256,7 @@ def test_completed_transfer_appends_ownership_history(client):
         assert len(rows) == 2
         assert rows[0].previous_owner_id == ids["seller_id"]
         assert rows[0].new_owner_id == ids["buyer_id"]
-        assert rows[0].reason_type == "TRANSFER"
+        assert rows[0].reason_type == "SALE"
         assert rows[0].supporting_reference == (
             db.query(__import__("app.models.transaction", fromlist=["Transaction"]).Transaction)
             .filter_by(id=transaction_id)
@@ -277,7 +274,7 @@ def test_completed_transfer_rejects_seller_not_latest_owner(client):
     _approve_transaction(client, ids, transaction_id)
 
     response = _set_transaction_status(
-        client, ids, transaction_id, "COMPLETED"
+        client, ids, transaction_id, "COMPLETED", token_key="admin_token"
     )
     assert response.status_code == 409
     assert "seller does not match" in response.json()["detail"].lower()
@@ -332,7 +329,7 @@ def test_pending_transaction_cannot_jump_to_completed(client):
     transaction_id = _create_transaction_for_completion(client, ids)
 
     response = _set_transaction_status(
-        client, ids, transaction_id, "COMPLETED"
+        client, ids, transaction_id, "COMPLETED", token_key="admin_token"
     )
     assert response.status_code == 400
 
@@ -341,7 +338,7 @@ def test_pending_transaction_cannot_jump_to_completed(client):
         from app.models.transaction import Transaction
 
         transaction = db.query(Transaction).filter_by(id=transaction_id).one()
-        assert transaction.status == "PENDING"
+        assert transaction.status == "PENDING_REVIEW"
         assert (
             db.query(OwnershipHistory)
             .filter_by(parcel_id=ids["parcel_id"])
