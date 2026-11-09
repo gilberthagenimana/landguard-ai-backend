@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.parcel import Parcel
 from app.schemas.domain import PublicParcelOut
+from app.services.serializers import latest_owner, owner_name
 from app.services.transactions.service import get_latest_transaction, get_unresolved_transaction
 
 router = APIRouter(prefix="/public", tags=["Public"])
@@ -100,6 +101,12 @@ def public_parcel_check(upi: str, db: Session = Depends(get_db)):
             "Please consult the official land authority for clarification."
         )
 
+    # Resolve the current registered owner from the official ownership history.
+    # The latest ownership record is authoritative; pending/rejected transactions
+    # never rewrite legal ownership.
+    current_owner = latest_owner(db, parcel.id)
+    registered_owner_name = owner_name(db, current_owner.id) if current_owner else None
+
     return PublicParcelOut(
         upi=parcel.upi,
         parcel_code=parcel.parcel_code,
@@ -112,6 +119,8 @@ def public_parcel_check(upi: str, db: Session = Depends(get_db)):
         transaction_code=transaction_code,
         transaction_status=transaction_status,
         warning_message=warning,
+        registered_owner_name=registered_owner_name,
+        registered_owner_id=current_owner.id if current_owner else None,
         record_classification=record_classification,
         official_verification="NOT_INDEPENDENTLY_VERIFIED",
     )

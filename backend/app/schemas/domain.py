@@ -307,6 +307,8 @@ class PublicParcelOut(BaseModel):
     transaction_code: Optional[str] = None
     transaction_status: Optional[str] = None
     warning_message: Optional[str] = None
+    registered_owner_name: Optional[str] = None
+    registered_owner_id: Optional[int] = None
 
     record_classification: str = "UNVERIFIED_LOCAL_RECORD"
     official_verification: str = "NOT_INDEPENDENTLY_VERIFIED"

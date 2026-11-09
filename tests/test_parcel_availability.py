@@ -155,3 +155,79 @@ def test_second_unresolved_transaction_for_same_parcel_is_rejected(client):
     second = client.post("/api/transactions", headers={"Authorization": f"Bearer {token}"}, json=payload)
     assert second.status_code == 409
     assert "incompatible pending transaction" in second.json()["detail"].lower()
+
+
+def test_registered_owner_displayed_for_parcel_with_owner(client):
+    db = TestingSessionLocal()
+    parcel = _seed_parcel(db, parcel_code="RW-AVAIL-OWN-1", upi="DEMO-UPI-RW-AVAIL-OWN-1")
+    owner = create_test_owner(db, owner_code="OWN-AVAIL-OWN1", full_name="HAGENIMANA Gilbert", identification_number="11995533-DEMO")
+    owner_id = owner.id
+    create_ownership_history(db, parcel.id, owner.id, reason_type="FIRST_REGISTRATION")
+    upi = parcel.upi
+    db.close()
+
+    data = _lookup(client, upi)
+    assert data["registered_owner_name"] == "HAGENIMANA Gilbert"
+    assert data["registered_owner_id"] == owner_id
+
+
+def test_registered_owner_unavailable_when_no_owner_assigned(client):
+    db = TestingSessionLocal()
+    parcel = _seed_parcel(db, parcel_code="RW-AVAIL-OWN-2", upi="DEMO-UPI-RW-AVAIL-OWN-2")
+    upi = parcel.upi
+    db.close()
+
+    data = _lookup(client, upi)
+    assert data["registered_owner_name"] is None
+    assert data["registered_owner_id"] is None
+
+
+def test_registered_owner_preserved_while_transaction_pending(client):
+    db = TestingSessionLocal()
+    parcel = _seed_parcel(db, parcel_code="RW-AVAIL-OWN-3", upi="DEMO-UPI-RW-AVAIL-OWN-3")
+    owner = create_test_owner(db, owner_code="OWN-AVAIL-OWN3", full_name="Owner Pending Gilbert")
+    create_ownership_history(db, parcel.id, owner.id, reason_type="FIRST_REGISTRATION")
+    seller = create_test_owner(db, owner_code="OWN-AVAIL-OWN3-SELLER", full_name="Owner Pending Seller", identification_number="11995543-DEMO")
+    buyer = create_test_owner(db, owner_code="OWN-AVAIL-OWN3-BUYER", full_name="Owner Pending Buyer", identification_number="11995544-DEMO")
+    create_test_transaction(db, parcel_id=parcel.id, seller_id=seller.id, buyer_id=buyer.id, transaction_code="TX-AVAIL-OWN3", status="PENDING_REVIEW")
+    upi = parcel.upi
+    db.close()
+
+    data = _lookup(client, upi)
+    assert data["availability"] == "UNAVAILABLE"
+    assert data["registered_owner_name"] == "Owner Pending Gilbert"
+    assert data["has_pending_transaction"] is True
+
+
+def test_registered_owner_updated_after_confirmed_transfer(client):
+    db = TestingSessionLocal()
+    parcel = _seed_parcel(db, parcel_code="RW-AVAIL-OWN-4", upi="DEMO-UPI-RW-AVAIL-OWN-4")
+    seller = create_test_owner(db, owner_code="OWN-AVAIL-OWN4-SELLER", full_name="Owner Transfer Seller", identification_number="11995545-DEMO")
+    buyer = create_test_owner(db, owner_code="OWN-AVAIL-OWN4-BUYER", full_name="HAGENIMANA Gilbert Buyer", identification_number="11995546-DEMO")
+    create_test_transaction(db, parcel_id=parcel.id, seller_id=seller.id, buyer_id=buyer.id, transaction_code="TX-AVAIL-OWN4", status="COMPLETED")
+    create_ownership_history(db, parcel.id, seller.id, reason_type="FIRST_REGISTRATION")
+    create_ownership_history(db, parcel.id, buyer.id, reason_type="TRANSFER", transfer_date=datetime.utcnow())
+    buyer_id = buyer.id
+    upi = parcel.upi
+    db.close()
+
+    data = _lookup(client, upi)
+    assert data["availability"] == "COMPLETED"
+    assert data["registered_owner_name"] == "HAGENIMANA Gilbert Buyer"
+    assert data["registered_owner_id"] == buyer_id
+
+
+def test_registered_owner_preserved_after_rejected_transaction(client):
+    db = TestingSessionLocal()
+    parcel = _seed_parcel(db, parcel_code="RW-AVAIL-OWN-5", upi="DEMO-UPI-RW-AVAIL-OWN-5")
+    owner = create_test_owner(db, owner_code="OWN-AVAIL-OWN5", full_name="Owner Rejected Gilbert")
+    create_ownership_history(db, parcel.id, owner.id, reason_type="FIRST_REGISTRATION")
+    seller = create_test_owner(db, owner_code="OWN-AVAIL-OWN5-SELLER", full_name="Owner Rejected Seller", identification_number="11995547-DEMO")
+    buyer = create_test_owner(db, owner_code="OWN-AVAIL-OWN5-BUYER", full_name="Owner Rejected Buyer", identification_number="11995548-DEMO")
+    create_test_transaction(db, parcel_id=parcel.id, seller_id=seller.id, buyer_id=buyer.id, transaction_code="TX-AVAIL-OWN5", status="REJECTED")
+    upi = parcel.upi
+    db.close()
+
+    data = _lookup(client, upi)
+    assert data["availability"] == "AVAILABLE"
+    assert data["registered_owner_name"] == "Owner Rejected Gilbert"
