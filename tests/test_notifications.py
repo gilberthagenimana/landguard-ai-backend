@@ -344,8 +344,7 @@ def test_verified_review_decision_creates_notification(client):
     assert list_response.json()[0]["related_transaction_code"] == create_response.json()["transaction_code"]
 
 
-def test_notify_admins_respects_in_app_alerts_setting(db_session):
-    db = db_session
+def _ensure_admin(db):
     admin_role = db.query(Role).filter(Role.name == "ADMIN").first()
     if admin_role is None:
         admin_role = Role(name="ADMIN", description="Administrator")
@@ -361,6 +360,12 @@ def test_notify_admins_respects_in_app_alerts_setting(db_session):
     )
     db.add(admin)
     db.flush()
+    return admin
+
+
+def test_notify_admins_respects_in_app_alerts_setting(db_session):
+    db = db_session
+    admin = _ensure_admin(db)
 
     save_setting(db, "notifications.in_app_system_alerts", "false")
 
@@ -384,3 +389,37 @@ def test_notify_admins_respects_in_app_alerts_setting(db_session):
         related_parcel_upi="UPI-PREF-1",
     )
     assert len(notifications) == 1
+
+
+def test_notify_admins_prevents_duplicates(db_session):
+    db = db_session
+    admin = _ensure_admin(db)
+
+    first = notify_admins(
+        db,
+        event_type="TRANSACTION_CREATED",
+        title="New Transaction Awaiting Administrative Review",
+        description="A new land transaction has been registered and is awaiting administrative review.",
+        priority="medium",
+        related_transaction_code="TX-DUP-001",
+    )
+    second = notify_admins(
+        db,
+        event_type="TRANSACTION_CREATED",
+        title="New Transaction Awaiting Administrative Review",
+        description="A new land transaction has been registered and is awaiting administrative review.",
+        priority="medium",
+        related_transaction_code="TX-DUP-001",
+    )
+    assert len(first) == 1
+    assert second == []
+
+    third = notify_admins(
+        db,
+        event_type="TRANSACTION_VERIFIED",
+        title="Transaction Verified",
+        description="An administrative review verified a land transaction.",
+        priority="high",
+        related_transaction_code="TX-DUP-001",
+    )
+    assert len(third) == 1

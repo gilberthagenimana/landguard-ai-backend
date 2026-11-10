@@ -3,7 +3,7 @@
 Persists admin/security notifications in the active database and exposes
 queries for unread counts, listings and read-state updates.
 """
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import func
@@ -150,6 +150,19 @@ def notify_admins(
 
     notifications: list[Notification] = []
     for recipient_user_id in get_admin_recipient_ids(db):
+        # Prevent duplicate notifications for identical events within a short window.
+        duplicate = (
+            db.query(Notification.id)
+            .filter(
+                Notification.recipient_user_id == recipient_user_id,
+                Notification.event_type == event_type,
+                Notification.title == title,
+                Notification.created_at >= datetime.utcnow() - timedelta(minutes=30),
+            )
+            .first()
+        )
+        if duplicate is not None:
+            continue
         notifications.append(
             create_notification(
                 db,
