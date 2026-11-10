@@ -163,6 +163,19 @@ def create_parcel(
             detail="Parcel could not be saved because it conflicts with an existing record.",
         ) from exc
     db.refresh(parcel)
+
+    # Notify administrators about the new parcel registration.
+    from app.services.notification.service import notify_admins
+
+    notify_admins(
+        db,
+        event_type="PARCEL_REGISTERED",
+        title="New Parcel Registered",
+        description="A new land parcel has been registered in the system.",
+        priority="low",
+        related_parcel_upi=parcel.upi,
+    )
+
     return serialize_parcel(db, parcel)
 
 

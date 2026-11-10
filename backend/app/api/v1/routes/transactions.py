@@ -31,6 +31,7 @@ from app.services.audit.service import record_audit
 from app.services.auth.service import require_roles
 from app.services.risk.service import RiskModelUnavailable, analyze_transaction
 from app.services.serializers import ensure_case, next_transaction_code, serialize_history, serialize_transaction
+from app.services.notification.service import notify_admins
 from app.services.verification.service import verify_transaction
 
 router = APIRouter(prefix="/transactions", tags=["Transactions"])
@@ -210,6 +211,17 @@ def create_transaction(
         ) from exc
 
     db.refresh(item)
+
+    # Notify administrators about the new transaction awaiting review.
+    notify_admins(
+        db,
+        event_type="TRANSACTION_CREATED",
+        title="New Transaction Awaiting Administrative Review",
+        description="A new land transaction has been registered and is awaiting administrative review.",
+        priority="medium",
+        related_transaction_code=item.transaction_code,
+    )
+
     return serialize_transaction(db, item)
 
 
@@ -513,6 +525,49 @@ def submit_review_decision(
         case.review_notes = explanation
         db.flush()
 
+    # Emit admin notifications for the resolved review outcomes.
+    if target_status in ("VERIFIED", "APPROVED"):
+        notify_admins(
+            db,
+            event_type="TRANSACTION_VERIFIED",
+            title="Transaction Verified",
+            description="An administrative review verified a land transaction.",
+            priority="high",
+            related_transaction_code=transaction.transaction_code,
+            auto_commit=False,
+        )
+    elif target_status == "FLAGGED":
+        notify_admins(
+            db,
+            event_type="TRANSACTION_FLAGGED",
+            title="Transaction Flagged for Administrative Review",
+            description="A land transaction was flagged for administrative review.",
+            priority="high",
+            related_transaction_code=transaction.transaction_code,
+            auto_commit=False,
+        )
+    elif target_status == "REJECTED":
+        notify_admins(
+            db,
+            event_type="TRANSACTION_REJECTED",
+            title="Transaction Rejected",
+            description="An administrative review rejected a land transaction.",
+            priority="high",
+            related_transaction_code=transaction.transaction_code,
+            auto_commit=False,
+        )
+
+    if target_status == "UNDER_REVIEW":
+        notify_admins(
+            db,
+            event_type="TRANSACTION_AWAITING_REVIEW",
+            title="Transaction Awaiting Administrative Review",
+            description="A land transaction has been moved into administrative review.",
+            priority="medium",
+            related_transaction_code=transaction.transaction_code,
+            auto_commit=False,
+        )
+
     try:
         db.commit()
     except SQLAlchemyError as exc:
@@ -679,6 +734,16 @@ def confirm_ownership_transfer(
                 "to": "COMPLETED",
                 "reason": f"Official transfer confirmed. Reference: {reference}",
             },
+        )
+
+        notify_admins(
+            db,
+            event_type="OWNERSHIP_TRANSFER_CONFIRMED",
+            title="Official Ownership Transfer Confirmed",
+            description="An official land ownership transfer was confirmed and completed.",
+            priority="high",
+            related_transaction_code=transaction.transaction_code,
+            auto_commit=False,
         )
 
         db.commit()

@@ -11,6 +11,7 @@ from app.api.v1.routes.auth import router as auth_router
 from app.api.v1.routes.cases import router as cases_router
 from app.api.v1.routes.dashboard import router as dashboard_router
 from app.api.v1.routes.evidence import router as evidence_router
+from app.api.v1.routes.notifications import router as notifications_router
 from app.api.v1.routes.owners import router as owners_router
 from app.api.v1.routes.parcels import router as parcels_router
 from app.api.v1.routes.public import router as public_router
@@ -73,6 +74,7 @@ api_routers = [
     reports_router,
     public_router,
     evidence_router,
+    notifications_router,
     settings_router,
 ]
 for router in api_routers:

@@ -269,6 +269,46 @@ def analyze_transaction(
     db.add(record)
     db.flush()
 
+    # Advisory admin notification for high-risk AI assessments; never treats
+    # the model prediction as a confirmed fraud determination.
+    if str(risk_level).upper() == "HIGH":
+        try:
+            from app.services.notification.service import notify_admins
+
+            notify_admins(
+                db,
+                event_type="HIGH_AI_FRAUD_RISK_DETECTED",
+                title="High AI Fraud Risk Detected",
+                description=(
+                    f"The AI risk assessment for transaction {transaction.transaction_code} "
+                    f"returned a high risk level. This is an advisory alert and not a "
+                    f"confirmed fraud determination."
+                ),
+                priority="high",
+                related_transaction_code=transaction.transaction_code,
+                auto_commit=False,
+            )
+        except Exception:
+            # Risk notifications must never block the risk analysis itself.
+            pass
+
+    try:
+        from app.services.notification.service import notify_admins
+
+        if features.get("duplicate_transaction"):
+            notify_admins(
+                db,
+                event_type="OWNERSHIP_CONFLICT_DETECTED",
+                title="Parcel Ownership Conflict Detected",
+                description="An AI risk assessment detected an ownership conflict between recorded transactions.",
+                priority="high",
+                related_transaction_code=transaction.transaction_code,
+                auto_commit=False,
+            )
+    except Exception:
+        # Ownership conflict notifications must never block the risk analysis itself.
+        pass
+
     return RiskAnalysisResponse(
         transaction_id=transaction.id,
         risk_score=risk_score,
