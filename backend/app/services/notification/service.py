@@ -299,6 +299,10 @@ def notify_transfer_parties(
     buyer_user_id = get_user_recipient_id_by_email(db, buyer_owner.email if buyer_owner else None)
     if buyer_user_id is not None and buyer_user_id not in recipient_ids:
         recipient_ids.append(buyer_user_id)
+    seller_owner = db.query(Owner).filter(Owner.id == transaction.seller_owner_id).first()
+    seller_user_id = get_user_recipient_id_by_email(db, seller_owner.email if seller_owner else None)
+    if seller_user_id is not None and seller_user_id not in recipient_ids:
+        recipient_ids.append(seller_user_id)
     return notify_users(
         db,
         recipient_user_ids=recipient_ids,
