@@ -269,14 +269,15 @@ def analyze_transaction(
     db.add(record)
     db.flush()
 
-    # Advisory admin notification for high-risk AI assessments; never treats
+    # Advisory notification for high-risk AI assessments; never treats
     # the model prediction as a confirmed fraud determination.
     if str(risk_level).upper() == "HIGH":
         try:
-            from app.services.notification.service import notify_admins
+            from app.services.notification.service import notify_transaction_parties
 
-            notify_admins(
+            notify_transaction_parties(
                 db,
+                transaction.id,
                 event_type="HIGH_AI_FRAUD_RISK_DETECTED",
                 title="High AI Fraud Risk Detected",
                 description=(
@@ -293,11 +294,12 @@ def analyze_transaction(
             pass
 
     try:
-        from app.services.notification.service import notify_admins
+        from app.services.notification.service import notify_transaction_parties
 
         if features.get("duplicate_transaction"):
-            notify_admins(
+            notify_transaction_parties(
                 db,
+                transaction.id,
                 event_type="OWNERSHIP_CONFLICT_DETECTED",
                 title="Parcel Ownership Conflict Detected",
                 description="An AI risk assessment detected an ownership conflict between recorded transactions.",

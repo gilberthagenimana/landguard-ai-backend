@@ -27,7 +27,7 @@ from app.models.system_config import SystemConfig
 from app.models.transaction import Transaction
 from app.models.user import User
 from app.services.auth.service import create_auth_token
-from app.services.notification.service import create_notification, notify_admins
+from app.services.notification.service import create_notification, notify_admins, notify_transfer_parties
 from app.services.settings.service import save_setting
 
 engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
@@ -423,3 +423,198 @@ def test_notify_admins_prevents_duplicates(db_session):
         related_transaction_code="TX-DUP-001",
     )
     assert len(third) == 1
+
+
+def test_transaction_creation_notifies_admin_and_responsible_officer(client):
+    ids = _setup_data()
+    response = client.post(
+        "/api/transactions",
+        headers={"Authorization": f"Bearer {ids['token']}"},
+        json={
+            "parcel_id": ids["parcel_id"],
+            "seller_owner_id": ids["seller_id"],
+            "buyer_owner_id": ids["buyer_id"],
+            "transaction_type": "SALE",
+            "transaction_date": datetime.utcnow().isoformat(),
+            "declared_value": "15000000",
+            "status": "PENDING",
+        },
+    )
+    assert response.status_code == 201
+    transaction_code = response.json()["transaction_code"]
+
+    db = TestingSessionLocal()
+    try:
+        officer_user = db.query(User).filter(User.username == "tx-officer").first()
+        assert officer_user is not None
+        officer_notifications = (
+            db.query(Notification)
+            .filter(
+                Notification.recipient_user_id == officer_user.id,
+                Notification.event_type == "TRANSACTION_CREATED",
+            )
+            .all()
+        )
+        assert len(officer_notifications) == 1
+        assert officer_notifications[0].related_transaction_code == transaction_code
+    finally:
+        db.close()
+
+    admin_list_response = client.get(
+        "/api/notifications",
+        params={"event_type": "TRANSACTION_CREATED"},
+        headers={"Authorization": f"Bearer {ids['admin_token']}"},
+    )
+    assert admin_list_response.status_code == 200
+    assert len(admin_list_response.json()) == 1
+    assert admin_list_response.json()[0]["related_transaction_code"] == transaction_code
+
+
+def test_official_transfer_confirmation_notifies_admin_and_buyer(db_session):
+    db = db_session
+    admin = _ensure_admin(db)
+
+    buyer_role = db.query(Role).filter(Role.name == "BUYER").first()
+    if buyer_role is None:
+        buyer_role = Role(name="BUYER", description="Buyer")
+        db.add(buyer_role)
+        db.flush()
+
+    buyer_user = User(
+        username="tx-buyer",
+        full_name="TX Buyer",
+        email="tx-buyer@test.local",
+        password_hash=hash_password("BuyerPass123!"),
+        is_active=True,
+        roles=[buyer_role],
+    )
+    seller_owner = Owner(
+        owner_code="OWN-TX-003", full_name="Seller Two", status="ACTIVE", email="seller-two@test.local"
+    )
+    buyer_owner = Owner(
+        owner_code="OWN-TX-004", full_name="Buyer Two", status="ACTIVE", email="tx-buyer@test.local"
+    )
+    parcel = Parcel(
+        upi="UPI-TX-002", parcel_code="RW-TX-002", location="Test Location", province="Kigali",
+        district="Gasabo", sector="Kacyiru", cell="Cell", village="Village", area_ha=1.0, status="ACTIVE",
+    )
+    db.add_all([buyer_user, seller_owner, buyer_owner, parcel])
+    db.flush()
+    db.add(OwnershipHistory(
+        parcel_id=parcel.id,
+        new_owner_id=seller_owner.id,
+        transfer_date=datetime.utcnow() - timedelta(days=365),
+        reason_type="FIRST_REGISTRATION",
+        supporting_reference="TEST-INITIAL-REGISTRATION",
+    ))
+    db.flush()
+
+    transaction = Transaction(
+        transaction_code="TX-TRANSFER-001",
+        created_by=admin.id,
+        parcel_id=parcel.id,
+        seller_owner_id=seller_owner.id,
+        buyer_owner_id=buyer_owner.id,
+        transaction_type="SALE",
+        transaction_date=datetime.utcnow(),
+        status="VERIFIED",
+    )
+    db.add(transaction)
+    db.flush()
+
+    notifications = notify_transfer_parties(
+        db,
+        transaction,
+        event_type="OWNERSHIP_TRANSFER_CONFIRMED",
+        title="Official Ownership Transfer Confirmed",
+        description="An official land ownership transfer was confirmed and completed.",
+        priority="high",
+        related_transaction_code=transaction.transaction_code,
+        auto_commit=False,
+    )
+
+    buyer_notifications = (
+        db.query(Notification)
+        .filter(
+            Notification.recipient_user_id == buyer_user.id,
+            Notification.event_type == "OWNERSHIP_TRANSFER_CONFIRMED",
+        )
+        .all()
+    )
+    assert len(buyer_notifications) == 1
+    admin_notifications = (
+        db.query(Notification)
+        .filter(Notification.recipient_user_id == admin.id, Notification.event_type == "OWNERSHIP_TRANSFER_CONFIRMED")
+        .all()
+    )
+    assert len(admin_notifications) == 1
+    assert len(notifications) == 2
+
+    duplicates = notify_transfer_parties(
+        db,
+        transaction,
+        event_type="OWNERSHIP_TRANSFER_CONFIRMED",
+        title="Official Ownership Transfer Confirmed",
+        description="An official land ownership transfer was confirmed and completed.",
+        priority="high",
+        related_transaction_code=transaction.transaction_code,
+        auto_commit=False,
+    )
+    assert duplicates == []
+
+
+def test_user_scoped_notification_endpoints(client):
+    ids = _setup_data()
+    create_response = client.post(
+        "/api/transactions",
+        headers={"Authorization": f"Bearer {ids['token']}"},
+        json={
+            "parcel_id": ids["parcel_id"],
+            "seller_owner_id": ids["seller_id"],
+            "buyer_owner_id": ids["buyer_id"],
+            "transaction_type": "SALE",
+            "transaction_date": datetime.utcnow().isoformat(),
+            "declared_value": "15000000",
+            "status": "PENDING",
+        },
+    )
+    assert create_response.status_code == 201
+
+    my_list_response = client.get(
+        "/api/notifications/me", headers={"Authorization": f"Bearer {ids['token']}"}
+    )
+    assert my_list_response.status_code == 200
+    data = my_list_response.json()
+    assert len(data) == 1
+    assert data[0]["event_type"] == "TRANSACTION_CREATED"
+
+    my_unread_response = client.get(
+        "/api/notifications/me/unread-count", headers={"Authorization": f"Bearer {ids['token']}"}
+    )
+    assert my_unread_response.status_code == 200
+    assert my_unread_response.json()["unread_count"] == 1
+
+    mark_all_response = client.post(
+        "/api/notifications/me/read-all", headers={"Authorization": f"Bearer {ids['token']}"}
+    )
+    assert mark_all_response.status_code == 200
+    assert mark_all_response.json()["updated"] == 1
+
+    mark_response = client.post(
+        f"/api/notifications/me/{data[0]['id']}/read", headers={"Authorization": f"Bearer {ids['token']}"}
+    )
+    assert mark_response.status_code == 200
+    assert mark_response.json()["is_read"] is True
+
+    unauthenticated_response = client.get("/api/notifications/me")
+    assert unauthenticated_response.status_code == 401
+
+
+def test_user_cannot_mark_other_users_notification_as_read(client):
+    ids = _setup_data()
+    notification = _create_notification_for_admin("PARCEL_REGISTERED", "New Parcel Registered")
+
+    mark_response = client.post(
+        f"/api/notifications/me/{notification.id}/read", headers={"Authorization": f"Bearer {ids['token']}"}
+    )
+    assert mark_response.status_code == 404
