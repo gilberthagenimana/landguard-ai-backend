@@ -164,11 +164,16 @@ def create_parcel(
         ) from exc
     db.refresh(parcel)
 
-    # Notify administrators about the new parcel registration.
-    from app.services.notification.service import notify_admins
+    # Notify administrators and the registered landowner about the new parcel registration.
+    from app.services.notification.service import get_admin_recipient_ids, get_user_recipient_id_by_email, notify_users
 
-    notify_admins(
+    recipient_ids: list[int] = list(get_admin_recipient_ids(db))
+    owner_user_id = get_user_recipient_id_by_email(db, owner.email)
+    if owner_user_id is not None and owner_user_id not in recipient_ids:
+        recipient_ids.append(owner_user_id)
+    notify_users(
         db,
+        recipient_user_ids=recipient_ids,
         event_type="PARCEL_REGISTERED",
         title="New Parcel Registered",
         description="A new land parcel has been registered in the system.",
