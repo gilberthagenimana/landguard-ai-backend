@@ -46,6 +46,13 @@ NOTIFICATION_FREQUENCY_SETTINGS = {
     "notifications.frequency": {"default": "instant", "values": ["instant", "daily", "weekly"]},
 }
 
+NOTIFICATION_PREFERENCE_KEYS = (
+    "notifications.email_high_risk",
+    "notifications.email_awaiting_review",
+    "notifications.email_account_events",
+    "notifications.in_app_system_alerts",
+)
+
 FILE_STORAGE_MAX_SIZE_SETTINGS = {
     "file_storage.max_file_size_mb": {"default": 10.0, "min": 1.0, "max": 500.0},
 }
@@ -157,6 +164,25 @@ def get_security_policy(db: Session | None = None) -> dict[str, int]:
         "min_password_length": _int("security.min_password_length", 8, 8, 64),
         "max_failed_logins": _int("security.max_failed_logins", 5, 1, 20),
         "lockout_minutes": _int("security.lockout_minutes", 30, 1, 1440),
+    }
+
+
+def get_notification_preferences(db: Session) -> dict[str, Any]:
+    """Return effective notification preferences (DB-backed with safe defaults)."""
+
+    def _bool(key: str, default: bool) -> bool:
+        raw = get_setting_value(db, key, DEFAULTS.get(key, str(default))).lower()
+        return raw == "true"
+
+    frequency = get_setting_value(db, "notifications.frequency", DEFAULTS["notifications.frequency"]).lower()
+    if frequency not in NOTIFICATION_FREQUENCY_SETTINGS["notifications.frequency"]["values"]:
+        frequency = NOTIFICATION_FREQUENCY_SETTINGS["notifications.frequency"]["default"]
+    return {
+        "email_high_risk": _bool("notifications.email_high_risk", True),
+        "email_awaiting_review": _bool("notifications.email_awaiting_review", True),
+        "email_account_events": _bool("notifications.email_account_events", False),
+        "in_app_system_alerts": _bool("notifications.in_app_system_alerts", True),
+        "frequency": frequency,
     }
 
 

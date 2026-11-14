@@ -57,6 +57,19 @@ def create_user(
     record_audit(db, action="USER_CREATED", entity="User", entity_id=str(user.id), user_id=current_user.id, metadata={"role": role_name})
     db.commit()
     db.refresh(user)
+
+    # Notify administrators about the new user registration.
+    from app.services.notification.service import notify_admins
+
+    notify_admins(
+        db,
+        event_type="USER_REGISTERED",
+        title="New User Registered",
+        description="A new user account was registered in the system.",
+        priority="low",
+        auto_commit=False,
+    )
+
     return user
 
 

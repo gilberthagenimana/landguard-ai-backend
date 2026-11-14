@@ -328,6 +328,38 @@ class TransactionReviewDecision(BaseModel):
     investigation_findings: Optional[str] = None
 
 
+class NotificationOut(BaseModel):
+    """Admin/security notification record persisted for a recipient."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    recipient_user_id: int
+    event_type: str
+    title: str
+    description: Optional[str] = None
+    priority: str = "medium"
+    related_parcel_upi: Optional[str] = None
+    related_transaction_code: Optional[str] = None
+    is_read: bool = False
+    created_at: datetime
+    read_at: Optional[datetime] = None
+
+
+class NotificationCreate(BaseModel):
+    recipient_user_id: int
+    event_type: str
+    title: str
+    description: Optional[str] = None
+    priority: Optional[str] = None
+    related_parcel_upi: Optional[str] = None
+    related_transaction_code: Optional[str] = None
+
+
+class NotificationUnreadCount(BaseModel):
+    unread_count: int = 0
+
+
 class OwnershipTransferRequest(BaseModel):
     supporting_reference: str
     notes: Optional[str] = None

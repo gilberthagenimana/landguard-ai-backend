@@ -186,6 +186,20 @@ async def upload_evidence(
     db.commit()
     db.refresh(evidence)
 
+    # Notify administrators and the responsible officer about the evidence upload.
+    from app.services.notification.service import notify_transaction_parties
+
+    notify_transaction_parties(
+        db,
+        transaction.id,
+        event_type="TRANSACTION_EVIDENCE_UPLOADED",
+        title="Transaction Evidence Uploaded",
+        description="Supporting evidence was uploaded for a land transaction.",
+        priority="medium",
+        related_transaction_code=transaction.transaction_code,
+        auto_commit=False,
+    )
+
     return EvidenceOut(
         id=evidence.id,
         transaction_id=evidence.transaction_id,
