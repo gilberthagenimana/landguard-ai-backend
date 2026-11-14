@@ -58,6 +58,8 @@ class ParcelUpdate(BaseModel):
 
 class ParcelOut(ParcelCreate):
     model_config = ConfigDict(from_attributes=True)
+    # Official UPI may be unavailable for legacy parcels.
+    upi: Optional[str] = None
     owner: Optional["ParcelOwnerOut"] = None
     id: int
     has_pending_transaction: bool = False
@@ -219,6 +221,7 @@ class TransactionOut(BaseModel):
     transaction_code: str
     parcel_id: int
     parcel_code: Optional[str] = None
+    upi: Optional[str] = None
     seller_owner_id: Optional[int] = None
     seller_name: Optional[str] = None
     buyer_owner_id: Optional[int] = None
@@ -296,7 +299,8 @@ class ProfileUpdate(BaseModel):
 class PublicParcelOut(BaseModel):
     """Safe public parcel information; never implies official verification."""
 
-    upi: str
+    # A public record may not have an official UPI yet.
+    upi: Optional[str] = None
     parcel_code: str
     location: str
     district: str

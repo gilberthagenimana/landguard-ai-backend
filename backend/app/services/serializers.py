@@ -134,6 +134,7 @@ def serialize_transaction(db: Session, item: Transaction) -> TransactionOut:
         transaction_code=item.transaction_code,
         parcel_id=item.parcel_id,
         parcel_code=parcel.parcel_code if parcel else None,
+        upi=parcel.upi if parcel else None,
         seller_owner_id=item.seller_owner_id,
         seller_name=owner_name(db, item.seller_owner_id),
         buyer_owner_id=item.buyer_owner_id,

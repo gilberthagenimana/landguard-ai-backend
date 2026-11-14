@@ -37,12 +37,12 @@ def db():
         session.close()
 
 
-def make_transaction(db, *, recent_change=False, with_conflict=False, seller_matches=True):
+def make_transaction(db, *, recent_change=False, with_conflict=False, seller_matches=True, upi="UPI-VERIFY-001"):
     owner = Owner(owner_code="OWN-001", full_name="Registered Owner", status="ACTIVE")
     other_owner = Owner(owner_code="OWN-002", full_name="Other Owner", status="ACTIVE")
     buyer = Owner(owner_code="OWN-003", full_name="Buyer", status="ACTIVE")
     parcel = Parcel(
-        upi="UPI-VERIFY-001",
+        upi=upi,
         parcel_code="RW-TEST-001",
         location="Kigali",
         province="Kigali",
@@ -92,10 +92,28 @@ def make_transaction(db, *, recent_change=False, with_conflict=False, seller_mat
 def test_verification_passes_for_consistent_transaction(db):
     transaction = make_transaction(db)
     results = verify_transaction(db, transaction)
-    assert len(results) == 11
-    # The final automated rule evaluates supporting evidence; without an
-    # attached document it is reported as a warning rather than a failure.
-    assert all(result.status == "PASS" for result in results if result.rule_name != "Supporting evidence attached")
+    result_by_rule = {result.rule_name: result for result in results}
+    expected_rules = {
+        "UPI recorded",
+        "Parcel exists",
+        "Seller ownership match",
+        "Seller authorization",
+        "Active transaction already exists",
+        "Conflicting transaction records",
+        "Recent ownership change",
+        "Important fields consistent",
+        "Unusual transaction frequency",
+        "Multiple recent ownership changes",
+        "Supporting evidence attached",
+    }
+    assert len(results) == len(expected_rules)
+    assert set(result_by_rule) == expected_rules
+    assert all(
+        result.status == "PASS"
+        for name, result in result_by_rule.items()
+        if name != "Supporting evidence attached"
+    )
+    assert result_by_rule["Supporting evidence attached"].status == "WARNING"
 
 
 def test_verification_flags_mismatch_conflict_and_recent_change(db):
@@ -106,3 +124,11 @@ def test_verification_flags_mismatch_conflict_and_recent_change(db):
     assert result_by_rule["Active transaction already exists"].status == "FAIL"
     assert result_by_rule["Conflicting transaction records"].status == "FAIL"
     assert result_by_rule["Recent ownership change"].status == "WARNING"
+
+
+def test_verification_deliberately_flags_missing_upi(db):
+    transaction = make_transaction(db, upi=None)
+    results = verify_transaction(db, transaction)
+    result = next(item for item in results if item.rule_name == "UPI recorded")
+    assert result.status == "FAIL"
+    assert result.severity == "HIGH"
