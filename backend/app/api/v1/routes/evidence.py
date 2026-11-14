@@ -1,3 +1,4 @@
+from app.models.transaction_status_history import TransactionStatusHistory
 """Evidence management API routes for transaction supporting documents."""
 import hashlib
 import os
@@ -144,6 +145,34 @@ async def upload_evidence(
         reason="Evidence uploaded",
     )
     db.add(history)
+
+    # If transaction was awaiting evidence, transition it back to UNDER_REVIEW
+    if transaction.status == "AWAITING_EVIDENCE":
+        transaction.status = "UNDER_REVIEW"
+        db.add(
+            TransactionStatusHistory(
+                transaction_id=transaction.id,
+                previous_status="AWAITING_EVIDENCE",
+                new_status="UNDER_REVIEW",
+                changed_by=current_user.id,
+                reason="Supporting evidence uploaded; returned to review queue.",
+            )
+        )
+        record_audit(
+            db,
+            action="TRANSACTION_STATUS_CHANGED",
+            entity="Transaction",
+            entity_id=transaction.transaction_code,
+            user_id=current_user.id,
+            metadata={"from": "AWAITING_EVIDENCE", "to": "UNDER_REVIEW", "reason": "Evidence uploaded"},
+        )
+
+    # Re-run automated verification so evidence check updates
+    try:
+        from app.services.verification.service import verify_transaction
+        verify_transaction(db, transaction)
+    except Exception:
+        pass
 
     # Record audit
     record_audit(

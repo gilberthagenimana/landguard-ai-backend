@@ -92,8 +92,10 @@ def make_transaction(db, *, recent_change=False, with_conflict=False, seller_mat
 def test_verification_passes_for_consistent_transaction(db):
     transaction = make_transaction(db)
     results = verify_transaction(db, transaction)
-    assert len(results) == 10
-    assert all(result.status == "PASS" for result in results)
+    assert len(results) == 11
+    # The final automated rule evaluates supporting evidence; without an
+    # attached document it is reported as a warning rather than a failure.
+    assert all(result.status == "PASS" for result in results if result.rule_name != "Supporting evidence attached")
 
 
 def test_verification_flags_mismatch_conflict_and_recent_change(db):

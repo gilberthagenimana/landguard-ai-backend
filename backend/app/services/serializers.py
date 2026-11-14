@@ -12,6 +12,7 @@ from app.schemas.domain import (
     CaseOut,
     OwnerOut,
     OwnershipHistoryOut,
+    ParcelOwnerOut,
     ParcelOut,
     TransactionOut,
 )
@@ -60,11 +61,23 @@ def serialize_parcel(db: Session, parcel: Parcel) -> ParcelOut:
         area_ha=parcel.area_ha,
         status=parcel.status,
         registration_reference=parcel.registration_reference,
+        owner=(
+            ParcelOwnerOut(
+                id=owner.id,
+                full_name=owner.full_name,
+                owner_type=owner.owner_type,
+                organization_name=owner.organization_name,
+            )
+            if owner
+            else None
+        ),
         has_pending_transaction=parcel.has_pending_transaction,
         created_at=parcel.created_at,
         updated_at=parcel.updated_at,
         current_owner_name=owner.full_name if owner else None,
         current_owner_id=owner.id if owner else None,
+        current_owner_type=owner.owner_type if owner else None,
+        current_organization_name=owner.organization_name if owner else None,
         latitude=parcel.latitude,
         longitude=parcel.longitude,
         boundary_geometry=parcel.boundary_geometry,

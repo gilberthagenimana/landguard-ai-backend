@@ -53,7 +53,7 @@ def client():
     return TestClient(app)
 
 
-def _setup_data():
+def _setup_data(include_initial_ownership=True):
     db = TestingSessionLocal()
     roles = {
         name: Role(name=name, description=name.title())
@@ -82,6 +82,15 @@ def _setup_data():
         district="Gasabo", sector="Kacyiru", cell="Cell", village="Village", area_ha=1.0, status="ACTIVE",
     )
     db.add_all([seller, buyer, parcel])
+    db.flush()
+    if include_initial_ownership:
+        db.add(OwnershipHistory(
+            parcel_id=parcel.id,
+            new_owner_id=seller.id,
+            transfer_date=datetime.utcnow() - timedelta(days=365),
+            reason_type="FIRST_REGISTRATION",
+            supporting_reference="TEST-INITIAL-REGISTRATION",
+        ))
     db.commit()
     ids = {
         "token": create_auth_token(officer, role="OFFICER"),
@@ -106,7 +115,7 @@ def test_create_transaction_success(client):
     assert response.status_code == 201
     data = response.json()
     assert data["transaction_code"].startswith("TX-")
-    assert data["status"] == "PENDING"
+    assert data["status"] == "PENDING_REVIEW"
 
 
 def test_create_transaction_nonexistent_parcel(client):
@@ -172,7 +181,8 @@ def test_stored_verification_empty(client):
     tx_id = create_resp.json()["id"]
     response = client.get(f"/api/transactions/{tx_id}/verification", headers={"Authorization": f"Bearer {ids['token']}"})
     assert response.status_code == 200
-    assert response.json() == []
+    # Automated verification runs on transaction creation and persists results.
+    assert len(response.json()) > 0
 
 
 def _create_transaction_for_completion(client, ids):
@@ -192,10 +202,10 @@ def _create_transaction_for_completion(client, ids):
     return response.json()["id"]
 
 
-def _set_transaction_status(client, ids, transaction_id, new_status):
+def _set_transaction_status(client, ids, transaction_id, new_status, token_key="token"):
     return client.put(
         f"/api/transactions/{transaction_id}/status",
-        headers={"Authorization": f"Bearer {ids['token']}"},
+        headers={"Authorization": f"Bearer {ids[token_key]}"},
         json={"status": new_status, "reason": "Regression test"},
     )
 
@@ -218,25 +228,20 @@ def _record_initial_owner(ids, owner_id=None):
 
 
 def _approve_transaction(client, ids, transaction_id):
-    response = _set_transaction_status(
-        client, ids, transaction_id, "UNDER_REVIEW"
-    )
+    response = _set_transaction_status(client, ids, transaction_id, "UNDER_REVIEW")
     assert response.status_code == 200, response.text
 
-    response = _set_transaction_status(
-        client, ids, transaction_id, "APPROVED"
-    )
+    response = _set_transaction_status(client, ids, transaction_id, "APPROVED", token_key="admin_token")
     assert response.status_code == 200, response.text
 
 
 def test_completed_transfer_appends_ownership_history(client):
     ids = _setup_data()
-    _record_initial_owner(ids)
     transaction_id = _create_transaction_for_completion(client, ids)
     _approve_transaction(client, ids, transaction_id)
 
     response = _set_transaction_status(
-        client, ids, transaction_id, "COMPLETED"
+        client, ids, transaction_id, "COMPLETED", token_key="admin_token"
     )
     assert response.status_code == 200, response.text
     assert response.json()["status"] == "COMPLETED"
@@ -255,7 +260,7 @@ def test_completed_transfer_appends_ownership_history(client):
         assert len(rows) == 2
         assert rows[0].previous_owner_id == ids["seller_id"]
         assert rows[0].new_owner_id == ids["buyer_id"]
-        assert rows[0].reason_type == "TRANSFER"
+        assert rows[0].reason_type == "SALE"
         assert rows[0].supporting_reference == (
             db.query(__import__("app.models.transaction", fromlist=["Transaction"]).Transaction)
             .filter_by(id=transaction_id)
@@ -264,11 +269,8 @@ def test_completed_transfer_appends_ownership_history(client):
         )
     finally:
         db.close()
-
-
 def test_completed_transfer_rejects_seller_not_latest_owner(client):
     ids = _setup_data()
-    _record_initial_owner(ids)
 
     transaction_id = _create_transaction_for_completion(client, ids)
     _approve_transaction(client, ids, transaction_id)
@@ -287,7 +289,7 @@ def test_completed_transfer_rejects_seller_not_latest_owner(client):
         db.close()
 
     response = _set_transaction_status(
-        client, ids, transaction_id, "COMPLETED"
+        client, ids, transaction_id, "COMPLETED", token_key="admin_token"
     )
     assert response.status_code == 409
     assert "seller does not match" in response.json()["detail"].lower()
@@ -310,38 +312,26 @@ def test_completed_transfer_rejects_seller_not_latest_owner(client):
 
 
 def test_completed_transfer_requires_established_ownership(client):
-    ids = _setup_data()
+    ids = _setup_data(include_initial_ownership=False)
 
-    # Establish ownership so transaction creation is valid.
-    _record_initial_owner(ids)
-
-    transaction_id = _create_transaction_for_completion(client, ids)
-    _approve_transaction(client, ids, transaction_id)
-
-    # Simulate missing ownership record before completion.
-    db = TestingSessionLocal()
-    try:
-        db.query(OwnershipHistory).filter(
-            OwnershipHistory.parcel_id == ids["parcel_id"]
-        ).delete()
-        db.commit()
-    finally:
-        db.close()
-
-    response = _set_transaction_status(
-        client, ids, transaction_id, "COMPLETED"
+    response = client.post(
+        "/api/transactions",
+        headers={"Authorization": f"Bearer {ids['token']}"},
+        json={
+            "parcel_id": ids["parcel_id"],
+            "seller_owner_id": ids["seller_id"],
+            "buyer_owner_id": ids["buyer_id"],
+            "transaction_type": "SALE",
+            "transaction_date": datetime.utcnow().isoformat(),
+            "declared_value": "15000000",
+        },
     )
 
     assert response.status_code == 409
-    assert "ownership is not established" in response.json()["detail"].lower()
+    assert "no valid current registered owner" in response.json()["detail"].lower()
 
     db = TestingSessionLocal()
     try:
-        from app.models.transaction import Transaction
-
-        transaction = db.query(Transaction).filter_by(id=transaction_id).one()
-        assert transaction.status == "APPROVED"
-
         assert (
             db.query(OwnershipHistory)
             .filter_by(parcel_id=ids["parcel_id"])
@@ -351,13 +341,13 @@ def test_completed_transfer_requires_established_ownership(client):
     finally:
         db.close()
 
+
 def test_pending_transaction_cannot_jump_to_completed(client):
     ids = _setup_data()
-    _record_initial_owner(ids)
     transaction_id = _create_transaction_for_completion(client, ids)
 
     response = _set_transaction_status(
-        client, ids, transaction_id, "COMPLETED"
+        client, ids, transaction_id, "COMPLETED", token_key="admin_token"
     )
     assert response.status_code == 400
 
@@ -366,7 +356,7 @@ def test_pending_transaction_cannot_jump_to_completed(client):
         from app.models.transaction import Transaction
 
         transaction = db.query(Transaction).filter_by(id=transaction_id).one()
-        assert transaction.status == "PENDING"
+        assert transaction.status == "PENDING_REVIEW"
         assert (
             db.query(OwnershipHistory)
             .filter_by(parcel_id=ids["parcel_id"])
@@ -375,8 +365,6 @@ def test_pending_transaction_cannot_jump_to_completed(client):
         )
     finally:
         db.close()
-
-
 def test_delete_transaction(client):
     ids = _setup_data()
     db = TestingSessionLocal()

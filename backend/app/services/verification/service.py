@@ -8,12 +8,17 @@ from app.models.ownership_history import OwnershipHistory
 from app.models.parcel import Parcel
 from app.models.transaction import Transaction
 from app.models.verification_result import VerificationResultRecord
+from app.models.evidence import Evidence
 from app.schemas.verification import VerificationResult
 
 ACTIVE_TRANSACTION_STATUSES = (
+    TransactionStatus.PENDING_REVIEW.value,
     TransactionStatus.PENDING.value,
     TransactionStatus.UNDER_REVIEW.value,
     TransactionStatus.FLAGGED.value,
+    TransactionStatus.AWAITING_EVIDENCE.value,
+    TransactionStatus.VERIFIED.value,
+    TransactionStatus.APPROVED.value,
 )
 RECENT_DAYS = 30
 FREQUENCY_THRESHOLD = 2
@@ -336,6 +341,28 @@ def verify_transaction(
                 if multiple_changes
                 else "There are not multiple ownership changes within "
                 "the recent review window."
+            ),
+        )
+    )
+
+    # ---------------------------------------------------------
+    # Rule 10: Supporting evidence verification
+    # ---------------------------------------------------------
+    evidence_count = (
+        db.query(Evidence)
+        .filter(Evidence.transaction_id == transaction.id)
+        .count()
+    )
+
+    results.append(
+        VerificationResult(
+            rule_name="Supporting evidence attached",
+            status="PASS" if evidence_count > 0 else "WARNING",
+            severity="LOW" if evidence_count > 0 else "MEDIUM",
+            explanation=(
+                f"{evidence_count} supporting document(s) attached and verified in record."
+                if evidence_count > 0
+                else "No supporting evidence document attached. Administrative review may request documentation."
             ),
         )
     )

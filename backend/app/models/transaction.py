@@ -7,9 +7,12 @@ from app.core.transaction_status import TransactionStatus
 from app.db.base import Base
 
 TRANSACTION_STATUSES = (
+    "PENDING_REVIEW",
     "PENDING",
     "UNDER_REVIEW",
+    "AWAITING_EVIDENCE",
     "FLAGGED",
+    "VERIFIED",
     "APPROVED",
     "REJECTED",
     "COMPLETED",
@@ -30,7 +33,7 @@ class Transaction(Base):
     supporting_reference: Mapped[str | None] = mapped_column(String(200), nullable=True)
     status: Mapped[str] = mapped_column(
         String(50),
-        default=TransactionStatus.PENDING.value,
+        default=TransactionStatus.PENDING_REVIEW.value,
         nullable=False,
         index=True,
     )
