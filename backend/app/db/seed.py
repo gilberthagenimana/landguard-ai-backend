@@ -237,10 +237,9 @@ def _create_demo_parcels(db: Session) -> dict[str, Parcel]:
             )
             db.add(parcel)
             db.flush()
-        elif not parcel.upi:
-            # Backfill only missing synthetic demo identifiers.
-            parcel.upi = f"DEMO-UPI-{code}"
-            db.flush()
+        # Do not turn an unavailable official UPI into a synthetic identifier
+        # when re-seeding an existing local record. Newly-created demo parcels
+        # still receive their explicit local demo UPI above.
 
         parcels[code] = parcel
 

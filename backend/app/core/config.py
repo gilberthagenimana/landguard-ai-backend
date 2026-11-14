@@ -1,15 +1,13 @@
-
 from functools import lru_cache
 from pathlib import Path
 from typing import List
-
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 # Backend directory:
 # D:\LandGuard AI\landguard-ai-backend\backend
-BASE_DIR = Path(__file__).resolve().parents[2]
+BASE_DIR = Path(__file__).resolve().parents[3]
 
 
 class Settings(BaseSettings):
@@ -35,6 +33,7 @@ class Settings(BaseSettings):
 
     cors_origins: List[str] = [
         "http://localhost:3000",
+        "http://localhost:3001",
         "http://localhost:5173",
         "http://127.0.0.1:3000",
         "http://127.0.0.1:5173",

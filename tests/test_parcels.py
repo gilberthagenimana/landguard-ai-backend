@@ -18,6 +18,7 @@ from app.db.session import get_db
 from app.main import app
 from app.models.role import Role
 from app.models.owner import Owner
+from app.models.parcel import Parcel
 from app.models.user import User
 from app.services.auth.service import create_auth_token
 
@@ -290,6 +291,48 @@ def test_get_nonexistent_parcel(client):
     token = _get_officer_token()
     response = client.get("/api/parcels/99999", headers={"Authorization": f"Bearer {token}"})
     assert response.status_code == 404
+
+
+def test_null_upi_is_serialized_for_authenticated_parcel_reads(client):
+    token = _get_officer_token()
+    db = TestingSessionLocal()
+    parcel = Parcel(
+        upi=None, parcel_code="RW-NULL-UPI-001", location="Test Location",
+        province="Kigali", district="Gasabo", sector="Kacyiru",
+        cell="Test Cell", village="Test Village", area_ha=1.0, status="ACTIVE",
+    )
+    db.add(parcel)
+    db.commit()
+    db.refresh(parcel)
+    parcel_id = parcel.id
+    db.close()
+
+    response = client.get(f"/api/parcels/{parcel_id}", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    assert response.json()["upi"] is None
+
+    response = client.get("/api/parcels", headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 200
+    assert next(item for item in response.json() if item["id"] == parcel_id)["upi"] is None
+
+
+def test_multiple_null_upis_are_allowed_in_test_database():
+    db = TestingSessionLocal()
+    db.add_all([
+        Parcel(
+            upi=None, parcel_code="RW-NULL-UPI-002", location="Test Location",
+            province="Kigali", district="Gasabo", sector="Kacyiru",
+            cell="Test Cell", village="Test Village", area_ha=1.0, status="ACTIVE",
+        ),
+        Parcel(
+            upi=None, parcel_code="RW-NULL-UPI-003", location="Test Location",
+            province="Kigali", district="Gasabo", sector="Kacyiru",
+            cell="Test Cell", village="Test Village", area_ha=1.0, status="ACTIVE",
+        ),
+    ])
+    db.commit()
+    assert db.query(Parcel).filter(Parcel.upi.is_(None)).count() == 2
+    db.close()
 
 
 def test_update_parcel(client):

@@ -94,3 +94,63 @@ def test_public_lookup_returns_404_for_unknown_upi(client):
     response = client.get("/api/public/parcels/DEMO-UPI-NOT-FOUND")
 
     assert response.status_code == 404
+
+
+def test_public_lookup_by_parcel_code_preserves_existing_upi_lookup(client):
+    db = TestingSessionLocal()
+    try:
+        parcel = create_test_parcel(
+            db,
+            parcel_code="RW-PUBLIC-BY-CODE",
+            upi="UPI-PUBLIC-BY-CODE",
+        )
+        upi = parcel.upi
+    finally:
+        db.close()
+
+    upi_response = client.get(f"/api/public/parcels/{upi}")
+    code_response = client.get("/api/public/parcels/by-code/RW-PUBLIC-BY-CODE")
+
+    assert upi_response.status_code == 200
+    assert code_response.status_code == 200
+    assert code_response.json()["upi"] == "UPI-PUBLIC-BY-CODE"
+    assert code_response.json()["parcel_code"] == "RW-PUBLIC-BY-CODE"
+    assert set(code_response.json()) == set(upi_response.json())
+
+
+def test_public_lookup_by_parcel_code_supports_null_upi(client):
+    db = TestingSessionLocal()
+    try:
+        create_test_parcel(
+            db,
+            parcel_code="RW-PUBLIC-NULL-UPI",
+            upi=None,
+        )
+    finally:
+        db.close()
+
+    response = client.get("/api/public/parcels/by-code/RW-PUBLIC-NULL-UPI")
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["upi"] is None
+    assert data["parcel_code"] == "RW-PUBLIC-NULL-UPI"
+    assert not {"identification_number", "email", "phone", "audit_metadata", "investigation_notes"} & set(data)
+
+
+def test_public_lookup_by_unknown_parcel_code_returns_404(client):
+    response = client.get("/api/public/parcels/by-code/RW-PUBLIC-NOT-FOUND")
+    assert response.status_code == 404
+
+
+def test_public_response_schema_accepts_null_upi():
+    from app.schemas.domain import PublicParcelOut
+
+    response = PublicParcelOut(
+        upi=None,
+        parcel_code="RW-NULL-UPI-PUBLIC",
+        location="Kigali",
+        district="Gasabo",
+        status="ACTIVE",
+    )
+    assert response.upi is None

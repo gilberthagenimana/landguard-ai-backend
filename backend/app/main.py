@@ -1,5 +1,7 @@
+
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_redoc_html
 from fastapi.responses import JSONResponse
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -30,12 +32,44 @@ limiter = Limiter(key_func=get_remote_address)
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
+
+        # Security headers
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-XSS-Protection"] = "1; mode=block"
-        response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
-        response.headers["Content-Security-Policy"] = "default-src 'self'; img-src 'self' data: blob: https://*.tile.openstreetmap.org"
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains"
+        )
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+
+        # Documentation requires external assets.
+        # Keep the more permissive policy limited to documentation routes.
+        if request.url.path in {
+            "/docs",
+            "/redoc",
+            "/docs/oauth2-redirect",
+        }:
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net "
+                "https://fonts.googleapis.com; "
+                "font-src 'self' data: https://fonts.gstatic.com; "
+                "img-src 'self' data: blob: "
+                "https://*.tile.openstreetmap.org "
+                "https://fastapi.tiangolo.com; "
+                "connect-src 'self'; "
+                "object-src 'none'; "
+                "base-uri 'self'"
+            )
+        else:
+            # Restrictive CSP for normal application/API routes
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; "
+                "img-src 'self' data: blob: "
+                "https://*.tile.openstreetmap.org"
+            )
+
         return response
 
 
@@ -43,15 +77,24 @@ app = FastAPI(
     title="LandGuard AI",
     version="1.0.0",
     description=(
-        "Academic decision-support system for land transaction verification and fraud-risk analysis in Rwanda. "
+        "Academic decision-support system for land transaction verification "
+        "and fraud-risk analysis in Rwanda. "
         "AI output is advisory, uses synthetic/demo data, and requires human review. "
         "This system does not legally determine ownership."
     ),
+    docs_url="/docs",
+    redoc_url=None,
 )
+
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_exception_handler(
+    RateLimitExceeded,
+    _rate_limit_exceeded_handler,
+)
 
 app.add_middleware(SecurityHeadersMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -60,6 +103,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# API routers
 api_routers = [
     auth_router,
     users_router,
@@ -77,29 +122,62 @@ api_routers = [
     notifications_router,
     settings_router,
 ]
+
 for router in api_routers:
     app.include_router(router, prefix="/api")
 
 
+# Custom ReDoc documentation route
+@app.get("/redoc", include_in_schema=False)
+async def custom_redoc():
+    return get_redoc_html(
+        openapi_url=app.openapi_url,
+        title=f"{app.title} - ReDoc",
+        redoc_js_url=(
+            "https://cdn.jsdelivr.net/npm/redoc@2.2.0/bundles/redoc.standalone.js"
+        ),
+        with_google_fonts=False,
+    )
+
+
+# Global exception handler
 @app.exception_handler(Exception)
 def unhandled_error(_request: Request, exc: Exception):
     if isinstance(exc, HTTPException):
-        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
-    return JSONResponse(status_code=500, content={"detail": "An unexpected server error occurred."})
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+        )
+
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "An unexpected server error occurred."
+        },
+    )
 
 
-
-
+# Health check
 @app.get("/health")
 def health_check() -> dict:
-    return {"status": "ok", "service": "landguard-ai"}
+    return {
+        "status": "ok",
+        "service": "landguard-ai",
+    }
 
 
+# Root endpoint
 @app.get("/")
 def root() -> dict:
     return {
-        "message": "LandGuard AI: An AI-Powered Land Transaction Verification and Fraud Risk Detection System",
+        "message": (
+            "LandGuard AI: An AI-Powered Land Transaction "
+            "Verification and Fraud Risk Detection System"
+        ),
         "status": "ready",
         "docs": "/docs",
-        "note": "This prototype uses synthetic/demo data for academic development and testing. It is not an official government system.",
+        "note": (
+            "This prototype uses synthetic/demo data for academic "
+            "development and testing. It is not an official government system."
+        ),
     }

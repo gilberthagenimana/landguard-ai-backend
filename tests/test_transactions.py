@@ -53,7 +53,7 @@ def client():
     return TestClient(app)
 
 
-def _setup_data(include_initial_ownership=True):
+def _setup_data(include_initial_ownership=True, upi="UPI-TX-001"):
     db = TestingSessionLocal()
     roles = {
         name: Role(name=name, description=name.title())
@@ -78,7 +78,7 @@ def _setup_data(include_initial_ownership=True):
     seller = Owner(owner_code="OWN-TX-001", full_name="Seller One", status="ACTIVE")
     buyer = Owner(owner_code="OWN-TX-002", full_name="Buyer One", status="ACTIVE")
     parcel = Parcel(
-        upi="UPI-TX-001", parcel_code="RW-TX-001", location="Test Location", province="Kigali",
+        upi=upi, parcel_code="RW-TX-001", location="Test Location", province="Kigali",
         district="Gasabo", sector="Kacyiru", cell="Cell", village="Village", area_ha=1.0, status="ACTIVE",
     )
     db.add_all([seller, buyer, parcel])
@@ -106,6 +106,7 @@ def _setup_data(include_initial_ownership=True):
 
 def test_create_transaction_success(client):
     ids = _setup_data()
+    _record_initial_owner(ids)
     response = client.post("/api/transactions", headers={"Authorization": f"Bearer {ids['token']}"}, json={
         "parcel_id": ids["parcel_id"], "seller_owner_id": ids["seller_id"], "buyer_owner_id": ids["buyer_id"],
         "transaction_type": "SALE", "transaction_date": datetime.utcnow().isoformat(),
@@ -115,6 +116,23 @@ def test_create_transaction_success(client):
     data = response.json()
     assert data["transaction_code"].startswith("TX-")
     assert data["status"] == "PENDING_REVIEW"
+
+
+def test_transaction_workflow_uses_parcel_id_when_upi_is_null(client):
+    ids = _setup_data(upi=None)
+    transaction_id = _create_transaction_for_completion(client, ids)
+
+    details = client.get(
+        f"/api/transactions/{transaction_id}/review-details",
+        headers={"Authorization": f"Bearer {ids['admin_token']}"},
+    )
+    assert details.status_code == 200, details.text
+    assert details.json()["parcel"]["upi"] is None
+
+    _approve_transaction(client, ids, transaction_id)
+    response = _set_transaction_status(client, ids, transaction_id, "COMPLETED", token_key="admin_token")
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "COMPLETED"
 
 
 def test_create_transaction_nonexistent_parcel(client):
@@ -137,6 +155,7 @@ def test_create_transaction_nonexistent_seller(client):
 
 def test_list_transactions(client):
     ids = _setup_data()
+    _record_initial_owner(ids)
     client.post("/api/transactions", headers={"Authorization": f"Bearer {ids['token']}"}, json={
         "parcel_id": ids["parcel_id"], "seller_owner_id": ids["seller_id"], "buyer_owner_id": ids["buyer_id"],
         "transaction_type": "SALE", "transaction_date": datetime.utcnow().isoformat(),
@@ -150,6 +169,7 @@ def test_list_transactions(client):
 
 def test_get_transaction_by_id(client):
     ids = _setup_data()
+    _record_initial_owner(ids)
     create_resp = client.post("/api/transactions", headers={"Authorization": f"Bearer {ids['token']}"}, json={
         "parcel_id": ids["parcel_id"], "seller_owner_id": ids["seller_id"], "buyer_owner_id": ids["buyer_id"],
         "transaction_type": "SALE", "transaction_date": datetime.utcnow().isoformat(),
@@ -169,6 +189,7 @@ def test_get_nonexistent_transaction(client):
 
 def test_stored_verification_empty(client):
     ids = _setup_data()
+    _record_initial_owner(ids)
     create_resp = client.post("/api/transactions", headers={"Authorization": f"Bearer {ids['token']}"}, json={
         "parcel_id": ids["parcel_id"], "seller_owner_id": ids["seller_id"], "buyer_owner_id": ids["buyer_id"],
         "transaction_type": "SALE", "transaction_date": datetime.utcnow().isoformat(),
@@ -177,8 +198,29 @@ def test_stored_verification_empty(client):
     tx_id = create_resp.json()["id"]
     response = client.get(f"/api/transactions/{tx_id}/verification", headers={"Authorization": f"Bearer {ids['token']}"})
     assert response.status_code == 200
-    # Automated verification runs on transaction creation and persists results.
-    assert len(response.json()) > 0
+    results = {item["rule_name"]: item for item in response.json()}
+    expected_rules = {
+        "UPI recorded",
+        "Parcel exists",
+        "Seller ownership match",
+        "Seller authorization",
+        "Active transaction already exists",
+        "Conflicting transaction records",
+        "Recent ownership change",
+        "Important fields consistent",
+        "Unusual transaction frequency",
+        "Multiple recent ownership changes",
+        "Supporting evidence attached",
+    }
+    assert set(results) == expected_rules
+    assert results["UPI recorded"]["status"] == "PASS"
+    assert results["Parcel exists"]["status"] == "PASS"
+    assert all(
+        item["status"] == "PASS"
+        for name, item in results.items()
+        if name != "Supporting evidence attached"
+    )
+    assert results["Supporting evidence attached"]["status"] == "WARNING"
 
 
 def _create_transaction_for_completion(client, ids):
@@ -265,13 +307,24 @@ def test_completed_transfer_appends_ownership_history(client):
         )
     finally:
         db.close()
-
-
 def test_completed_transfer_rejects_seller_not_latest_owner(client):
     ids = _setup_data()
+
     transaction_id = _create_transaction_for_completion(client, ids)
-    _record_initial_owner(ids, owner_id=ids["buyer_id"])
     _approve_transaction(client, ids, transaction_id)
+
+    # Simulate ownership changing after transaction approval.
+    db = TestingSessionLocal()
+    try:
+        ownership = (
+            db.query(OwnershipHistory)
+            .filter(OwnershipHistory.parcel_id == ids["parcel_id"])
+            .one()
+        )
+        ownership.new_owner_id = ids["buyer_id"]
+        db.commit()
+    finally:
+        db.close()
 
     response = _set_transaction_status(
         client, ids, transaction_id, "COMPLETED", token_key="admin_token"
@@ -285,11 +338,12 @@ def test_completed_transfer_rejects_seller_not_latest_owner(client):
 
         transaction = db.query(Transaction).filter_by(id=transaction_id).one()
         assert transaction.status == "APPROVED"
+
         assert (
             db.query(OwnershipHistory)
             .filter_by(parcel_id=ids["parcel_id"])
             .count()
-            == 2
+            == 1
         )
     finally:
         db.close()
@@ -297,6 +351,7 @@ def test_completed_transfer_rejects_seller_not_latest_owner(client):
 
 def test_completed_transfer_requires_established_ownership(client):
     ids = _setup_data(include_initial_ownership=False)
+
     response = client.post(
         "/api/transactions",
         headers={"Authorization": f"Bearer {ids['token']}"},
@@ -309,6 +364,7 @@ def test_completed_transfer_requires_established_ownership(client):
             "declared_value": "15000000",
         },
     )
+
     assert response.status_code == 409
     assert "no valid current registered owner" in response.json()["detail"].lower()
 
@@ -320,6 +376,35 @@ def test_completed_transfer_requires_established_ownership(client):
             .count()
             == 0
         )
+    finally:
+        db.close()
+
+
+def test_completed_transfer_rejects_invalidated_ownership_after_approval(client):
+    ids = _setup_data()
+    transaction_id = _create_transaction_for_completion(client, ids)
+    _approve_transaction(client, ids, transaction_id)
+
+    db = TestingSessionLocal()
+    try:
+        db.query(OwnershipHistory).filter(
+            OwnershipHistory.parcel_id == ids["parcel_id"]
+        ).delete()
+        db.commit()
+    finally:
+        db.close()
+
+    response = _set_transaction_status(
+        client, ids, transaction_id, "COMPLETED", token_key="admin_token"
+    )
+    assert response.status_code == 409
+    assert "current recorded ownership is not established" in response.json()["detail"].lower()
+
+    db = TestingSessionLocal()
+    try:
+        transaction = db.query(Transaction).filter_by(id=transaction_id).one()
+        assert transaction.status == "APPROVED"
+        assert db.query(OwnershipHistory).filter_by(parcel_id=ids["parcel_id"]).count() == 0
     finally:
         db.close()
 
@@ -347,8 +432,6 @@ def test_pending_transaction_cannot_jump_to_completed(client):
         )
     finally:
         db.close()
-
-
 def test_delete_transaction(client):
     ids = _setup_data()
     db = TestingSessionLocal()
