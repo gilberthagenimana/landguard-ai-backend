@@ -11,21 +11,17 @@ from app.models.transaction import Transaction
 from app.models.user import User
 from app.models.user_session import UserSession
 from app.models.verification_result import VerificationResultRecord
-
+from app.models.notification import Notification
+from app.models.notification_preference import NotificationPreference
+from app.models.notification_delivery import NotificationDelivery
 __all__ = [
     "AuditLog",
     "CaseReview",
-    "Evidence",
-    "EvidenceReviewHistory",
-    "Owner",
-    "OwnershipHistory",
-    "Parcel",
-    "ParcelLocationSubmission",
-    "RiskPrediction",
-    "Role",
     "Transaction",
     "User",
     "UserSession",
+    "NotificationPreference",
+    "Notification",
+    "NotificationDelivery",
     "VerificationResultRecord",
 ]
-

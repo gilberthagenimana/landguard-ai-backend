@@ -183,8 +183,6 @@ async def upload_evidence(
         user_id=current_user.id,
         metadata={"transaction_id": transaction_id, "document_type": document_type},
     )
-    db.commit()
-    db.refresh(evidence)
 
     # Notify administrators and the responsible officer about the evidence upload.
     from app.services.notification.service import notify_transaction_parties
@@ -199,6 +197,9 @@ async def upload_evidence(
         related_transaction_code=transaction.transaction_code,
         auto_commit=False,
     )
+
+    db.commit()
+    db.refresh(evidence)
 
     return EvidenceOut(
         id=evidence.id,

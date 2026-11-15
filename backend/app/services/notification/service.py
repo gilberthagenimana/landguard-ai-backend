@@ -4,12 +4,15 @@ Persists admin/security notifications in the active database and exposes
 queries for unread counts, listings and read-state updates.
 """
 from datetime import datetime, timedelta
+from email.utils import parseaddr
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, inspect
 from sqlalchemy.orm import Session
 
 from app.models.notification import Notification
+from app.models.notification_delivery import NotificationDelivery
+from app.models.notification_preference import NotificationPreference
 from app.models.owner import Owner
 from app.models.transaction import Transaction
 from app.models.user import User
@@ -17,6 +20,28 @@ from app.services.settings.service import get_notification_preferences
 
 
 NOTIFICATION_DEFAULT_PRIORITY = "medium"
+
+
+def _valid_email_address(value: Optional[str]) -> Optional[str]:
+    """Return a normalized address suitable for an outbox row, if valid."""
+    if not value:
+        return None
+    address = value.strip()
+    if not address or len(address) > 320:
+        return None
+    _, parsed = parseaddr(address)
+    if parsed != address or "@" not in address:
+        return None
+    local, domain = address.rsplit("@", 1)
+    if not local or not domain or any(char.isspace() for char in address):
+        return None
+    return address
+
+
+def _database_has_user_tables(db: Session) -> bool:
+    """Support lightweight notification-only test databases."""
+    bind = db.get_bind()
+    return inspect(bind).has_table(User.__tablename__)
 
 
 def create_notification(
@@ -42,8 +67,38 @@ def create_notification(
         is_read=False,
     )
     db.add(notification)
-    db.commit()
-    db.refresh(notification)
+    db.flush()
+
+    # Read preferences without get_or_create_preferences(): that helper commits,
+    # while this outbox row must share the notification's transaction.
+    recipient = None
+    preferences = None
+    if _database_has_user_tables(db):
+        recipient = db.query(User).filter(User.id == recipient_user_id).first()
+        if inspect(db.get_bind()).has_table(NotificationPreference.__tablename__):
+            preferences = (
+                db.query(NotificationPreference)
+                .filter(NotificationPreference.user_id == recipient_user_id)
+                .first()
+            )
+    email_enabled = preferences.email_enabled if preferences is not None else True
+    frequency = preferences.frequency if preferences is not None else "instant"
+    recipient_email = _valid_email_address(recipient.email if recipient else None)
+    if email_enabled and frequency == "instant" and recipient_email:
+        body = title
+        if description:
+            body = f"{title}\n\n{description}"
+        db.add(
+            NotificationDelivery(
+                notification_id=notification.id,
+                recipient_email=recipient_email,
+                subject=title,
+                body=body,
+                status="pending",
+                attempt_count=0,
+                next_attempt_at=None,
+            )
+        )
     return notification
 
 
@@ -159,6 +214,8 @@ def notify_admins(
                 Notification.recipient_user_id == recipient_user_id,
                 Notification.event_type == event_type,
                 Notification.title == title,
+                Notification.related_parcel_upi == related_parcel_upi,
+                Notification.related_transaction_code == related_transaction_code,
                 Notification.created_at >= datetime.utcnow() - timedelta(minutes=30),
             )
             .first()
@@ -219,6 +276,8 @@ def notify_users(
                 Notification.recipient_user_id == recipient_user_id,
                 Notification.event_type == event_type,
                 Notification.title == title,
+                Notification.related_parcel_upi == related_parcel_upi,
+                Notification.related_transaction_code == related_transaction_code,
                 Notification.created_at >= datetime.utcnow() - timedelta(minutes=30),
             )
             .first()

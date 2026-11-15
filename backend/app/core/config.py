@@ -17,7 +17,14 @@ class Settings(BaseSettings):
     app_port: int = 8000
 
     database_url: str
-
+    # Email / SMTP configuration
+    smtp_host: str = "smtp-relay.brevo.com"
+    smtp_port: int = 587
+    smtp_secure: bool = False
+    smtp_user: str = ""
+    smtp_pass: str = ""
+    smtp_from_email: str = ""
+    smtp_from_name: str = "LandGuard AI"
     @field_validator("database_url", mode="before")
     @classmethod
     def use_psycopg_driver(cls, value: str) -> str:

@@ -55,8 +55,6 @@ def create_user(
     db.add(user)
     db.flush()
     record_audit(db, action="USER_CREATED", entity="User", entity_id=str(user.id), user_id=current_user.id, metadata={"role": role_name})
-    db.commit()
-    db.refresh(user)
 
     # Notify administrators about the new user registration.
     from app.services.notification.service import notify_admins
@@ -69,6 +67,9 @@ def create_user(
         priority="low",
         auto_commit=False,
     )
+
+    db.commit()
+    db.refresh(user)
 
     return user
 
