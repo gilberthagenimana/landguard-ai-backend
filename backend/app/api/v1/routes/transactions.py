@@ -210,6 +210,20 @@ def create_transaction(
     # Run automated checks
     _execute_automated_checks(db, item)
 
+    # Keep the in-app notification and email outbox row in the same
+    # transaction as the new transaction.
+    notify_transaction_parties(
+        db,
+        item.id,
+        event_type="TRANSACTION_CREATED",
+        title="New Transaction Awaiting Administrative Review",
+        description="A new land transaction has been registered and is awaiting administrative review.",
+        priority="medium",
+        related_transaction_code=item.transaction_code,
+        include_seller=True,
+        auto_commit=False,
+    )
+
     try:
         db.commit()
     except IntegrityError as exc:
@@ -220,19 +234,6 @@ def create_transaction(
         ) from exc
 
     db.refresh(item)
-
-    # Notify administrators, the creating officer and the submitting seller
-    # about the new transaction awaiting review.
-    notify_transaction_parties(
-        db,
-        item.id,
-        event_type="TRANSACTION_CREATED",
-        title="New Transaction Awaiting Administrative Review",
-        description="A new land transaction has been registered and is awaiting administrative review.",
-        priority="medium",
-        related_transaction_code=item.transaction_code,
-        include_seller=True,
-    )
 
     return serialize_transaction(db, item)
 

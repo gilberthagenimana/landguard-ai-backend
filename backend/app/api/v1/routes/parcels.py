@@ -154,17 +154,8 @@ def create_parcel(
         supporting_reference=parcel.registration_reference,
     ))
     record_audit(db, action="PARCEL_CREATED", entity="Parcel", entity_id=parcel.parcel_code, user_id=current_user.id)
-    try:
-        db.commit()
-    except IntegrityError as exc:
-        db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Parcel could not be saved because it conflicts with an existing record.",
-        ) from exc
-    db.refresh(parcel)
 
-    # Notify administrators and the registered landowner about the new parcel registration.
+    # Keep the notification and email outbox row with the parcel transaction.
     from app.services.notification.service import get_admin_recipient_ids, get_user_recipient_id_by_email, notify_users
 
     recipient_ids: list[int] = list(get_admin_recipient_ids(db))
@@ -179,7 +170,18 @@ def create_parcel(
         description="A new land parcel has been registered in the system.",
         priority="low",
         related_parcel_upi=parcel.upi,
+        auto_commit=False,
     )
+
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Parcel could not be saved because it conflicts with an existing record.",
+        ) from exc
+    db.refresh(parcel)
 
     return serialize_parcel(db, parcel)
 

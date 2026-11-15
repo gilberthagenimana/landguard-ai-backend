@@ -1,0 +1,23 @@
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Git and Python cache
+.git
+**/__pycache__/
+**/*.py[cod]
+.pytest_cache/
+**/.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+**/venv/
+
+# Existing uploaded evidence must not be baked into the image
+storage/evidence/
+
+# Temporary backups
+**/*.pre-*

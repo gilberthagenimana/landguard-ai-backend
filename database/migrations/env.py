@@ -31,6 +31,7 @@ import app.models.case_review
 import app.models.evidence
 import app.models.owner
 import app.models.ownership_history
+import app.models.notification
 import app.models.parcel
 import app.models.parcel_location_submission
 import app.models.risk_prediction
@@ -42,6 +43,8 @@ import app.models.transaction_status_history
 import app.models.user
 import app.models.user_session
 import app.models.verification_result
+import app.models.notification_preference
+import app.models.notification_delivery
 
 # --------------------------------------------------
 # ALEMBIC CONFIGURATION

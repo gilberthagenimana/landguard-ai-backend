@@ -11,7 +11,7 @@ class Notification(Base):
 
     __tablename__ = "notifications"
 
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    id: Mapped[int] = mapped_column(primary_key=True)
     recipient_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False, index=True)
     event_type: Mapped[str] = mapped_column(String(120), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(200), nullable=False)

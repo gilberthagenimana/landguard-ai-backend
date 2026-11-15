@@ -19,7 +19,14 @@ from app.services.notification.service import (
     mark_all_read,
     mark_read,
 )
-
+from app.schemas.notification_preference import (
+    NotificationPreferenceOut,
+    NotificationPreferenceUpdate,
+)
+from app.services.notification.preferences import (
+    get_or_create_preferences,
+    update_preferences,
+)
 router = APIRouter(prefix="/notifications", tags=["Notifications"])
 
 
@@ -127,3 +134,30 @@ def mark_my_notifications_read(
     """Mark all notifications addressed to the authenticated user as read."""
     updated = mark_all_read(db, current_user.id)
     return {"unread_count": count_unread(db, current_user.id), "updated": updated}
+@router.get(
+    "/me/preferences",
+    response_model=NotificationPreferenceOut,
+)
+def get_my_notification_preferences(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Get or initialize the authenticated user's notification preferences."""
+    return get_or_create_preferences(db, current_user.id)
+
+
+@router.put(
+    "/me/preferences",
+    response_model=NotificationPreferenceOut,
+)
+def update_my_notification_preferences(
+    payload: NotificationPreferenceUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Update the authenticated user's notification preferences."""
+    return update_preferences(
+        db,
+        current_user.id,
+        payload.model_dump(),
+    )
